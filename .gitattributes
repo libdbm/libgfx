@@ -1,0 +1,60 @@
+# Auto detect text files and perform LF normalization
+* text=auto eol=lf
+
+# Dart files
+*.dart text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+
+# Documentation
+*.md text eol=lf
+*.txt text eol=lf
+LICENSE text eol=lf
+README text eol=lf
+CHANGELOG text eol=lf
+
+# Shell scripts
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Windows scripts
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.eot binary
+*.pdf binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.7z binary
+*.bz2 binary
+
+# PPM files (can be text or binary)
+*.ppm binary
+*.pgm binary
+*.pbm binary
+*.pnm binary
+
+# PostScript/SVG files
+*.ps text eol=lf
+*.svg text eol=lf
+
+# Exclude files from language statistics
+doc/* linguist-documentation
+data/* linguist-vendored
+*.ppm linguist-generated
+*.png linguist-generated
+output/* linguist-generated

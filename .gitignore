@@ -1,0 +1,34 @@
+# Dart/Flutter
+.dart_tool/
+.packages
+build/
+pubspec.lock
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+
+# Output files
+output/
+*.ppm
+*.png
+*.jpg
+
+# Font files
+*.ttf
+*.otf
+
+# Test coverage
+coverage/
+
+# Documentation
+doc/api/
+
+# Temporary files
+*.tmp
+*.temp
+*.log

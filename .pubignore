@@ -1,0 +1,42 @@
+# Files and directories to exclude from pub.dev package
+output/
+*.ppm
+*.png
+*.bmp
+
+# Font files (users should download separately)
+data/fonts/*.ttf
+data/fonts/*.otf
+data/fonts/*.woff
+data/fonts/*.woff2
+data/fonts/*.eot
+
+# macOS files
+.DS_Store
+**/.DS_Store
+._*
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+tmp/
+temp/
+
+# Logs
+*.log
+logs/
+
+# Test coverage
+coverage/
+*.lcov
