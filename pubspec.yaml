@@ -1,6 +1,6 @@
 name: libgfx
 description: A comprehensive 2D vector graphics engine for Dart with software rasterization, supporting paths, strokes, gradients, text, and advanced rendering features.
-version: 1.0.0
+version: 1.0.1
 repository: https://github.com/libdbm/libgfx
 homepage: https://github.com/libdbm/libgfx
 documentation: https://github.com/libdbm/libgfx#readme
