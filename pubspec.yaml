@@ -8,11 +8,8 @@ issue_tracker: https://github.com/libdbm/libgfx/issues
 license: BSD-3-Clause
 
 topics:
-  - graphics
-  - 2d
-  - vector
-  - rendering
-  - canvas
+  - 2d graphics
+  - vector graphics
   - drawing
 
 environment:
