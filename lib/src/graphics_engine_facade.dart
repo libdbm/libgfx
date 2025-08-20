@@ -50,7 +50,12 @@ class GraphicsEngine {
   /// Creates a new graphics engine with a canvas of the specified size.
   /// Optionally accepts a custom rasterizer implementation.
   GraphicsEngine(int width, int height, {Rasterizer? rasterizer}) {
-    canvas = Bitmap(width, height);
+    GraphicsEngine.withCanvas(Bitmap(width, height), rasterizer: rasterizer);
+  }
+
+  /// Creates a new graphics engine using a bitmap as a canvas
+  /// Optionally accepts a custom rasterizer implementation.
+  GraphicsEngine.withCanvas(Bitmap canvas, {Rasterizer? rasterizer}) {
     _context = GraphicsContext(canvas, rasterizer: rasterizer);
     _textEngine = TextEngine(
       fontSize: _fontSize,
