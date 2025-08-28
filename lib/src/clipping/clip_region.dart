@@ -195,11 +195,14 @@ class ClipRegion {
     if (x < bounds.left ||
         x >= bounds.left + bounds.width ||
         y < bounds.top ||
-        y >= bounds.top + bounds.height)
+        y >= bounds.top + bounds.height) {
       return false;
+    }
 
     final spans = spansByY[y];
-    if (spans == null) return false;
+    if (spans == null) {
+      return false;
+    }
 
     for (final span in spans) {
       if (x >= span.x1 && x < span.x2) return true;

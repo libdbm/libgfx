@@ -1,5 +1,3 @@
-/// TrueType font table data structures
-
 /// Base class for all TrueType tables
 class TtfTable {
   final String tag;
