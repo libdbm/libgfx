@@ -1,10 +1,11 @@
 import 'dart:io';
 
+import 'package:libgfx/io/local_file_system.dart';
+import 'package:libgfx/libgfx.dart';
 import 'package:test/test.dart';
 
-import '../lib/src/fonts/ttf/ttf_font.dart';
-
 void main() {
+  const filesystem = LocalGraphicsFileSystem();
   group('TTF Parsing Tests with Real Fonts', () {
     late List<File> fontFiles;
 
@@ -39,7 +40,10 @@ void main() {
         print('Testing font: ${fontFile.path.split('/').last}');
 
         // Load font - should not throw
-        final font = await TTFFont.loadFromFile(fontFile.path);
+        final font = await TTFFont.loadFromFile(
+          fontFile.path,
+          filesystem: filesystem,
+        );
 
         // Basic validation
         expect(font.familyName, isNotEmpty);
@@ -58,7 +62,10 @@ void main() {
 
     test('font metrics are properly parsed', () async {
       for (final fontFile in fontFiles) {
-        final font = await TTFFont.loadFromFile(fontFile.path);
+        final font = await TTFFont.loadFromFile(
+          fontFile.path,
+          filesystem: filesystem,
+        );
         final metrics = font.metrics;
 
         // Font metrics should be reasonable
@@ -87,7 +94,10 @@ void main() {
 
     test('character mapping works correctly', () async {
       for (final fontFile in fontFiles) {
-        final font = await TTFFont.loadFromFile(fontFile.path);
+        final font = await TTFFont.loadFromFile(
+          fontFile.path,
+          filesystem: filesystem,
+        );
 
         // Test common ASCII characters
         final testChars = [
@@ -124,7 +134,10 @@ void main() {
 
     test('glyph path generation works', () async {
       for (final fontFile in fontFiles) {
-        final font = await TTFFont.loadFromFile(fontFile.path);
+        final font = await TTFFont.loadFromFile(
+          fontFile.path,
+          filesystem: filesystem,
+        );
 
         // Test generating paths for common characters
         final testChars = ['A', 'B', 'O', 'a', 'o', '0'];
@@ -172,7 +185,10 @@ void main() {
 
     test('text measurement works correctly', () async {
       for (final fontFile in fontFiles) {
-        final font = await TTFFont.loadFromFile(fontFile.path);
+        final font = await TTFFont.loadFromFile(
+          fontFile.path,
+          filesystem: filesystem,
+        );
 
         final testTexts = ['Hello', 'World', 'ABC', 'abc', '123', 'Test Text'];
 
@@ -199,7 +215,10 @@ void main() {
 
     test('text path generation works', () async {
       for (final fontFile in fontFiles) {
-        final font = await TTFFont.loadFromFile(fontFile.path);
+        final font = await TTFFont.loadFromFile(
+          fontFile.path,
+          filesystem: filesystem,
+        );
 
         final testText = 'Hello';
         final textPath = font.getTextPath(testText, 0, 0, 48.0);
@@ -221,7 +240,10 @@ void main() {
 
     test('kerning works when available', () async {
       for (final fontFile in fontFiles) {
-        final font = await TTFFont.loadFromFile(fontFile.path);
+        final font = await TTFFont.loadFromFile(
+          fontFile.path,
+          filesystem: filesystem,
+        );
 
         // Test common kerning pairs
         final kerningPairs = [
@@ -261,7 +283,10 @@ void main() {
             .toList();
 
         for (final fontFile in googleFonts) {
-          final font = await TTFFont.loadFromFile(fontFile.path);
+          final font = await TTFFont.loadFromFile(
+            fontFile.path,
+            filesystem: filesystem,
+          );
 
           expect(font.familyName.toLowerCase(), contains('google'));
           expect(
@@ -284,7 +309,10 @@ void main() {
             .toList();
 
         for (final fontFile in radleyFonts) {
-          final font = await TTFFont.loadFromFile(fontFile.path);
+          final font = await TTFFont.loadFromFile(
+            fontFile.path,
+            filesystem: filesystem,
+          );
 
           expect(font.familyName.toLowerCase(), contains('radley'));
 
@@ -299,8 +327,14 @@ void main() {
 
     test('font comparison - different fonts have different metrics', () async {
       if (fontFiles.length >= 2) {
-        final font1 = await TTFFont.loadFromFile(fontFiles[0].path);
-        final font2 = await TTFFont.loadFromFile(fontFiles[1].path);
+        final font1 = await TTFFont.loadFromFile(
+          fontFiles[0].path,
+          filesystem: filesystem,
+        );
+        final font2 = await TTFFont.loadFromFile(
+          fontFiles[1].path,
+          filesystem: filesystem,
+        );
 
         // Different fonts should have different family names (unless variants)
         final sameFamily = font1.familyName == font2.familyName;

@@ -1,8 +1,10 @@
+import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
 
 /// Test square caps are rendered correctly at both ends
 Future<void> main() async {
-  final engine = GraphicsEngine(400, 200);
+  const filesystem = LocalGraphicsFileSystem();
+  final engine = GraphicsEngine(400, 200, filesystem: filesystem);
   engine.clear(const Color(0xFFFFFFFF));
 
   // Draw a thick horizontal line with square caps

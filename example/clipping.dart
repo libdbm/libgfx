@@ -1,9 +1,11 @@
 import 'dart:math';
 
+import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
 
 Future<void> main() async {
-  final engine = GraphicsEngine(500, 500);
+  const filesystem = LocalGraphicsFileSystem();
+  final engine = GraphicsEngine(500, 500, filesystem: filesystem);
   engine.clear(const Color.fromARGB(255, 29, 43, 83));
 
   // --- 1. Define a clipping path (a 5-pointed star) ---

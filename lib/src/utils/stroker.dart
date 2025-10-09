@@ -3,7 +3,7 @@ import 'dart:math';
 import '../graphics_state.dart';
 import '../paths/path.dart';
 import '../point.dart';
-import 'geometry_utils.dart';
+import 'curve_utils.dart';
 import 'math_utils.dart';
 
 /// Helper class to store join calculation data
@@ -538,7 +538,7 @@ class Stroker {
   }
 
   Point _getNormal(Point vector) {
-    return GeometryUtils.getNormal(vector);
+    return Point(-vector.y, vector.x);
   }
 
   double _clampMiterLimit(double miterLimit) {
@@ -568,7 +568,7 @@ class Stroker {
           }
         } else if (cmd.type == PathCommandType.cubicCurveTo) {
           final p1 = cmd.points[0], p2 = cmd.points[1], p3 = cmd.points[2];
-          final curvePoints = GeometryUtils.flattenCubicBezier(
+          final curvePoints = CurveUtils.flattenCubicBezier(
             currentPos,
             p1,
             p2,
@@ -579,12 +579,12 @@ class Stroker {
           currentPoints.addAll(curvePoints.skip(1));
           currentPos = p3;
         } else if (cmd.type == PathCommandType.arc && cmd is ArcCommand) {
-          final arcPoints = GeometryUtils.flattenArc(currentPos, cmd);
+          final arcPoints = CurveUtils.flattenArc(currentPos, cmd);
           currentPoints.addAll(arcPoints.skip(1));
           currentPos = arcPoints.last;
         } else if (cmd.type == PathCommandType.ellipse &&
             cmd is EllipseCommand) {
-          final ellipsePoints = GeometryUtils.flattenEllipse(currentPos, cmd);
+          final ellipsePoints = CurveUtils.flattenEllipse(currentPos, cmd);
           currentPoints.addAll(ellipsePoints.skip(1));
           currentPos = ellipsePoints.last;
         } else if (cmd.type == PathCommandType.close) {

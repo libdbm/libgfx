@@ -23,6 +23,11 @@ class SpanPipeline {
 
   /// Process spans through the pipeline
   List<Span> process(List<Span> spans) {
+    // Fast path: skip processing if spans are simple and non-overlapping
+    if (_canSkipProcessing(spans)) {
+      return spans;
+    }
+
     var processedSpans = spans;
 
     for (final processor in processors) {
@@ -30,6 +35,26 @@ class SpanPipeline {
     }
 
     return processedSpans;
+  }
+
+  /// Check if spans are simple enough to skip pipeline processing
+  bool _canSkipProcessing(List<Span> spans) {
+    if (spans.isEmpty || processors.isEmpty) return true;
+    if (spans.length > 500) return false; // Too many to check quickly
+
+    // Check if spans are non-overlapping and properly ordered
+    int prevY = -1;
+    int prevX2 = -1;
+
+    for (final span in spans) {
+      if (span.y < prevY) return false; // Not sorted by Y
+      if (span.y == prevY && span.x1 < prevX2) return false; // Overlapping
+
+      prevY = span.y;
+      prevX2 = span.y == prevY ? span.x2 : -1;
+    }
+
+    return true;
   }
 
   /// Render spans to the bitmap

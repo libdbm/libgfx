@@ -1,14 +1,16 @@
+import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
 import 'package:libgfx/src/color/color_utils.dart';
 
 /// Creates a waterfall pattern demonstration
 /// Inspired by waterfal.ps - shows geometric shapes at different sizes
 /// (Original shows fonts, but libgfx doesn't have text rendering)
-void main() async {
+Future<void> main() async {
   const width = 600;
   const height = 800;
 
-  final engine = GraphicsEngine(width, height);
+  const filesystem = LocalGraphicsFileSystem();
+  final engine = GraphicsEngine(width, height, filesystem: filesystem);
 
   // White background
   engine.clear(const Color.fromARGB(255, 255, 255, 255));

@@ -1,9 +1,11 @@
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
 
 void main() async {
-  final engine = GraphicsEngine(800, 600);
+  const filesystem = LocalGraphicsFileSystem();
+  final engine = GraphicsEngine(800, 600, filesystem: filesystem);
   engine.clear(const Color(0xFFFFFFFF));
 
   // Load font for labels

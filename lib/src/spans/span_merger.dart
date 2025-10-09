@@ -30,6 +30,16 @@ class SpanMerger extends SpanProcessor {
     if (lineSpans.isEmpty) return [];
     if (lineSpans.length == 1) return lineSpans;
 
+    // Quick check for non-overlapping spans (common case for simple shapes)
+    bool overlaps = false;
+    for (int i = 0; i < lineSpans.length - 1; i++) {
+      if (lineSpans[i].x2 > lineSpans[i + 1].x1) {
+        overlaps = true;
+        break;
+      }
+    }
+    if (!overlaps) return lineSpans;
+
     // Use interval-based merging for efficiency
     final merged = <Span>[];
     final intervals = <_CoverageInterval>[];

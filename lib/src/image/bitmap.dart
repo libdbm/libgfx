@@ -87,21 +87,60 @@ class Bitmap {
     int x2,
     int y,
     Paint paint,
-    Matrix2D inverseTransform,
-    BlendMode blendMode,
+    Matrix2D inverse,
+    BlendMode mode,
   ) {
-    final startX = math.max(0, x1);
-    final endX = math.min(width, x2);
-    final int yOffset = y * width;
+    final start = math.max(0, x1);
+    final end = math.min(width, x2);
+    final offset = y * width;
 
-    for (int x = startX; x < endX; x++) {
-      final sourceColor = paint.getColorAt(
+    // Fast path for solid paint with srcOver
+    if (paint is SolidPaint && mode == BlendMode.srcOver) {
+      final color = paint.color;
+      if (color.alpha == 255) {
+        // Fully opaque - direct copy
+        final value = color.value;
+        for (int x = start; x < end; x++) {
+          _pixels[offset + x] = value;
+        }
+      } else if (color.alpha > 0) {
+        // Semi-transparent - blend once
+        for (int x = start; x < end; x++) {
+          final dest = Color(_pixels[offset + x]);
+          final blended = BlendModes.srcOver(color, dest);
+          _pixels[offset + x] = blended.value;
+        }
+      }
+      return;
+    }
+
+    // Optimized path for LinearGradient
+    if (paint is LinearGradient) {
+      final grad = paint;
+      final dy = y.toDouble();
+      var t = grad.getTAt(start.toDouble(), dy, inverse);
+      final tDelta = grad.getTDeltaX(inverse);
+
+      for (int x = start; x < end; x++) {
+        final normalizedT = grad.applySpread(t);
+        final source = grad.getColorAtOffset(normalizedT);
+        final dest = Color(_pixels[offset + x]);
+        final result = _blend(source, dest, mode);
+        _pixels[offset + x] = result.value;
+        t += tDelta;
+      }
+      return;
+    }
+
+    // Slow path for other gradients and patterns
+    for (int x = start; x < end; x++) {
+      final source = paint.getColorAt(
         Point(x.toDouble(), y.toDouble()),
-        inverseTransform,
+        inverse,
       );
-      final destColor = Color(_pixels[yOffset + x]);
-      final finalColor = _blend(sourceColor, destColor, blendMode);
-      _pixels[yOffset + x] = finalColor.value;
+      final dest = Color(_pixels[offset + x]);
+      final result = _blend(source, dest, mode);
+      _pixels[offset + x] = result.value;
     }
   }
 
@@ -112,41 +151,98 @@ class Bitmap {
     int y,
     int coverage,
     Paint paint,
-    Matrix2D inverseTransform,
-    BlendMode blendMode,
+    Matrix2D inverse,
+    BlendMode mode,
   ) {
     if (y < 0 || y >= height) return;
     if (coverage <= 0) return;
 
-    final startX = math.max(0, x);
-    final endX = math.min(width, x + length);
-    if (startX >= endX) return;
+    final start = math.max(0, x);
+    final end = math.min(width, x + length);
+    if (start >= end) return;
 
-    final int yOffset = y * width;
-    final coverageNorm = coverage / 255.0;
+    final offset = y * width;
+    final norm = coverage / 255.0;
 
-    for (int px = startX; px < endX; px++) {
-      final sourceColor = paint.getColorAt(
+    // Fast path for solid paint with srcOver
+    if (paint is SolidPaint && mode == BlendMode.srcOver) {
+      final base = paint.color;
+      final covered = Color.fromARGB(
+        (base.alpha * norm).round(),
+        base.red,
+        base.green,
+        base.blue,
+      );
+
+      for (int px = start; px < end; px++) {
+        final dest = Color(_pixels[offset + px]);
+        final blended = BlendModes.srcOver(covered, dest);
+        _pixels[offset + px] = blended.value;
+      }
+      return;
+    }
+
+    // Slow path for gradients and patterns
+    for (int px = start; px < end; px++) {
+      final source = paint.getColorAt(
         Point(px.toDouble(), y.toDouble()),
-        inverseTransform,
+        inverse,
       );
 
       // Apply coverage to source alpha
-      final coveredColor = Color.fromARGB(
-        (sourceColor.alpha * coverageNorm).round(),
-        sourceColor.red,
-        sourceColor.green,
-        sourceColor.blue,
+      final covered = Color.fromARGB(
+        (source.alpha * norm).round(),
+        source.red,
+        source.green,
+        source.blue,
       );
 
-      final destColor = Color(_pixels[yOffset + px]);
-      final finalColor = _blend(coveredColor, destColor, blendMode);
-      _pixels[yOffset + px] = finalColor.value;
+      final dest = Color(_pixels[offset + px]);
+      final result = _blend(covered, dest, mode);
+      _pixels[offset + px] = result.value;
     }
   }
 
   Color _blend(Color source, Color dest, BlendMode mode) {
     return BlendModes.blend(source, dest, mode);
+  }
+
+  /// Optimized rectangle fill for solid colors
+  void fillSolid(int x, int y, int w, int h, Color color, BlendMode mode) {
+    // Clip to bitmap bounds
+    if (x >= width || y >= height || x + w <= 0 || y + h <= 0) return;
+
+    final x1 = math.max(0, x);
+    final y1 = math.max(0, y);
+    final x2 = math.min(width, x + w);
+    final y2 = math.min(height, y + h);
+
+    if (x1 >= x2 || y1 >= y2) return;
+
+    final rectWidth = x2 - x1;
+
+    // Fast path for opaque srcOver - direct write
+    if (mode == BlendMode.srcOver && color.alpha == 255) {
+      final value = color.value;
+      for (int py = y1; py < y2; py++) {
+        final offset = py * width + x1;
+        for (int px = 0; px < rectWidth; px++) {
+          _pixels[offset + px] = value;
+        }
+      }
+      return;
+    }
+
+    // Semi-transparent or other blend modes
+    for (int py = y1; py < y2; py++) {
+      final offset = py * width + x1;
+      for (int px = 0; px < rectWidth; px++) {
+        final idx = offset + px;
+        final dest = Color(_pixels[idx]);
+        final blended = _blend(color, dest, mode);
+        _pixels[idx] = blended.value;
+      }
+    }
   }
 
   // ===== High-level image manipulation operations =====

@@ -1,14 +1,16 @@
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
 
 /// Creates an Escher-like butterfly tesselation pattern
 /// Based on escher.ps by Bob Wallis
-void main() async {
+Future<void> main() async {
   const width = 800;
   const height = 800;
 
-  final engine = GraphicsEngine(width, height);
+  const filesystem = LocalGraphicsFileSystem();
+  final engine = GraphicsEngine(width, height, filesystem: filesystem);
 
   // Light background
   engine.clear(const Color.fromARGB(255, 240, 240, 240));

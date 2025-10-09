@@ -124,6 +124,28 @@ void main() {
         expect(restoredPoint.x, equals(10));
         expect(restoredPoint.y, equals(20));
       });
+
+      test('save clones clip region state', () {
+        final clipPath = PathBuilder()
+          ..moveTo(10, 10)
+          ..lineTo(90, 10)
+          ..lineTo(90, 90)
+          ..lineTo(10, 90)
+          ..close();
+
+        context.clip(clipPath.build());
+        final originalClip = context.state.clipRegion;
+
+        expect(originalClip, isNotNull);
+
+        context.save();
+        final clonedClip = context.state.clipRegion;
+
+        expect(clonedClip, isNotNull);
+        expect(identical(originalClip, clonedClip), isFalse);
+
+        context.restore();
+      });
     });
 
     group('Drawing Operations', () {

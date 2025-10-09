@@ -1,5 +1,3 @@
-// Image codec for loading and saving various image formats
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'bitmap.dart';
@@ -8,6 +6,7 @@ import 'codecs/bmp_codec.dart';
 import 'codecs/p3_codec.dart';
 import 'codecs/p6_codec.dart';
 import 'codecs/png_codec.dart';
+import '../io/file_system.dart';
 
 /// Base class for image codecs
 abstract class ImageCodec {
@@ -31,9 +30,14 @@ class ImageLoader {
   ];
 
   /// Load image from file
-  static Future<Bitmap> loadFromFile(String path) async {
-    final file = File(path);
-    final bytes = await file.readAsBytes();
+  static Future<Bitmap> loadFromFile(
+    String path, {
+    required GraphicsFileSystem filesystem,
+  }) async {
+    final bytes = await filesystem.readFile(path);
+    if (bytes == null) {
+      throw UnsupportedFormatException(path, 'File not found at $path');
+    }
     return loadFromBytes(bytes);
   }
 
@@ -52,7 +56,11 @@ class ImageLoader {
 
   /// Save image to file
   /// For PPM files, use .ppm for P6 (binary) or .p3.ppm for P3 (ASCII)
-  static Future<void> saveToFile(Bitmap image, String path) async {
+  static Future<void> saveToFile(
+    Bitmap image,
+    String path, {
+    required GraphicsFileSystem filesystem,
+  }) async {
     final extension = path.split('.').last.toLowerCase();
     final filename = path.toLowerCase();
 
@@ -73,7 +81,6 @@ class ImageLoader {
     }
 
     final bytes = codec.encode(image);
-    final file = File(path);
-    await file.writeAsBytes(bytes);
+    await filesystem.writeFile(path, bytes);
   }
 }

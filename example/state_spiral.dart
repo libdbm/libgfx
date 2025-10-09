@@ -1,10 +1,12 @@
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
 import 'package:libgfx/src/color/color_utils.dart';
 
-void main() async {
-  final engine = GraphicsEngine(800, 800);
+Future<void> main() async {
+  const filesystem = LocalGraphicsFileSystem();
+  final engine = GraphicsEngine(800, 800, filesystem: filesystem);
 
   // Set background
   engine.clear(const Color(0xFF1a1a2e));

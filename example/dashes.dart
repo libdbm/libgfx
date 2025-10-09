@@ -1,7 +1,9 @@
+import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
 
 Future<void> main() async {
-  final engine = GraphicsEngine(500, 500);
+  const filesystem = LocalGraphicsFileSystem();
+  final engine = GraphicsEngine(500, 500, filesystem: filesystem);
   engine.clear(const Color.fromARGB(100, 100, 100, 100));
 
   final path = PathBuilder().circle(250, 250, 200).build();

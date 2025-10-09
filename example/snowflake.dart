@@ -1,15 +1,17 @@
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
 
 /// Creates a snowflake pattern similar to snowflak.ps
 /// Original by Elizabeth D. Zwicky
-void main() async {
+Future<void> main() async {
   const width = 800;
   const height = 800;
   const minSize = 250.0;
 
-  final engine = GraphicsEngine(width, height);
+  const filesystem = LocalGraphicsFileSystem();
+  final engine = GraphicsEngine(width, height, filesystem: filesystem);
   final random = math.Random();
 
   // Calculate box size for tiling

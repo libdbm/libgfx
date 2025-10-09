@@ -742,3 +742,8 @@ class RenderProfiler {
 - [Getting Started Guide](getting-started.md)
 - [API Reference](api-reference.md)
 - [Examples](examples.md)
+
+---
+
+Note on File IO:
+If an advanced example loads fonts from files or saves images, ensure a GraphicsFileSystem is configured on your GraphicsEngine (e.g., LocalGraphicsFileSystem on VM). See the API Reference section “File IO and GraphicsFileSystem”.

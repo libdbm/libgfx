@@ -1,5 +1,5 @@
 /// Base class for graphics state components providing common functionality
-abstract class GraphicsStateBase<T extends GraphicsStateBase<T>> {
+abstract class StateBase<T extends StateBase<T>> {
   /// Creates a deep copy of this state
   T clone();
 

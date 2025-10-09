@@ -7,6 +7,7 @@ import '../graphics_state.dart';
 import '../blending/blend_modes.dart';
 import '../matrix.dart';
 import '../point.dart';
+import '../rectangle.dart';
 
 /// Image filtering modes
 enum ImageFilter {
@@ -25,16 +26,31 @@ class ImageRenderer {
     GraphicsState state, {
     ImageFilter filter = ImageFilter.bilinear,
     double opacity = 1.0,
+    Rectangle<double>? sourceRect,
   }) {
     // Calculate inverse transform for sampling
     final inverseTransform = Matrix2D.copy(transform)..invert();
 
     // Calculate bounding box of transformed image
+    final rect =
+        sourceRect ??
+        Rectangle<double>(
+          0,
+          0,
+          source.width.toDouble(),
+          source.height.toDouble(),
+        );
+
+    final rectLeft = rect.left.toDouble();
+    final rectTop = rect.top.toDouble();
+    final rectRight = rect.right.toDouble();
+    final rectBottom = rect.bottom.toDouble();
+
     final corners = [
-      Point(0, 0),
-      Point(source.width.toDouble(), 0),
-      Point(source.width.toDouble(), source.height.toDouble()),
-      Point(0, source.height.toDouble()),
+      Point(rectLeft, rectTop),
+      Point(rectRight, rectTop),
+      Point(rectRight, rectBottom),
+      Point(rectLeft, rectBottom),
     ];
 
     final transformedCorners = corners
@@ -51,27 +67,84 @@ class ImageRenderer {
       maxY = math.max(maxY, corner.y);
     }
 
+    const edgePadding = 0.5;
+    minX -= edgePadding;
+    minY -= edgePadding;
+    maxX += edgePadding;
+    maxY += edgePadding;
+
     // Clamp to target bounds
     final startX = minX.floor().clamp(0, target.width - 1);
     final startY = minY.floor().clamp(0, target.height - 1);
     final endX = maxX.ceil().clamp(0, target.width - 1);
     final endY = maxY.ceil().clamp(0, target.height - 1);
 
+    if (startX > endX || startY > endY) {
+      return;
+    }
+
+    final clipRegion = state.clipRegion;
+    final graphicsHeight = target.height;
+
+    // Precompute inverse matrix components for the hot loop.
+    final invA = inverseTransform.a;
+    final invB = inverseTransform.b;
+    final invC = inverseTransform.c;
+    final invD = inverseTransform.d;
+    final invTx = inverseTransform.tx;
+    final invTy = inverseTransform.ty;
+
     // Render pixels
     for (int y = startY; y <= endY; y++) {
+      final clipY = clipRegion != null ? graphicsHeight - 1 - y : 0;
+      if (clipRegion != null && !clipRegion.spansByY.containsKey(clipY)) {
+        continue;
+      }
+
+      final inputY = y + 0.5;
+      final baseX = invC * inputY + invTx;
+      final baseY = invD * inputY + invTy;
+      final stepX = invA;
+      final stepY = invB;
+      var srcX = invA * (startX + 0.5) + baseX;
+      var srcY = invB * (startX + 0.5) + baseY;
+
       for (int x = startX; x <= endX; x++) {
-        // Transform pixel back to source coordinates
-        final srcPoint = inverseTransform.transform(
-          Point(x.toDouble(), y.toDouble()),
-        );
+        if (clipRegion != null && !clipRegion.contains(x, clipY)) {
+          srcX += stepX;
+          srcY += stepY;
+          continue;
+        }
+
+        var sampleX = srcX;
+        if (sampleX < rectLeft) {
+          sampleX = rectLeft;
+        } else if (sampleX > rectRight - 1e-6) {
+          sampleX = rectRight - 1e-6;
+        }
+
+        var sampleY = srcY;
+        if (sampleY < rectTop) {
+          sampleY = rectTop;
+        } else if (sampleY > rectBottom - 1e-6) {
+          sampleY = rectBottom - 1e-6;
+        }
 
         // Sample source image
-        final sampledColor = _sampleImage(
-          source,
-          srcPoint.x,
-          srcPoint.y,
-          filter,
-        );
+        var fetchX = sampleX;
+        var fetchY = sampleY;
+        if (filter == ImageFilter.nearest) {
+          final biasY = invD == 0 ? 0.0 : (invD > 0 ? 1e-6 : -1e-6);
+          fetchY -= biasY;
+
+          if (fetchY < rectTop) {
+            fetchY = rectTop;
+          } else if (fetchY > rectBottom - 1e-6) {
+            fetchY = rectBottom - 1e-6;
+          }
+        }
+
+        final sampledColor = _sampleImage(source, fetchX, fetchY, filter);
 
         if (sampledColor.alpha > 0) {
           // Apply opacity
@@ -89,6 +162,9 @@ class ImageRenderer {
           // Blend with target using current blend mode
           _blendPixel(target, x, y, color, state.blendMode);
         }
+
+        srcX += stepX;
+        srcY += stepY;
       }
     }
   }
@@ -112,8 +188,18 @@ class ImageRenderer {
 
   /// Nearest neighbor sampling
   static Color _nearestSample(Bitmap image, double x, double y) {
-    final ix = x.round().clamp(0, image.width - 1);
-    final iy = y.round().clamp(0, image.height - 1);
+    int clampIndex(int value, int min, int max) {
+      if (value < min) return min;
+      if (value > max) return max;
+      return value;
+    }
+
+    if (!x.isFinite || !y.isFinite) {
+      return Color.transparent;
+    }
+
+    final ix = clampIndex((x - 0.5).round(), 0, image.width - 1);
+    final iy = clampIndex(y.round(), 0, image.height - 1);
     return image.getPixel(ix, iy);
   }
 

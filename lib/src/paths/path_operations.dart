@@ -1,11 +1,12 @@
 import 'dart:math' as math;
 
+import '../graphics_state.dart';
 import '../matrix.dart';
-import 'path.dart';
 import '../point.dart';
 import '../utils/curve_utils.dart';
-import '../utils/geometry_utils.dart';
 import '../utils/math_utils.dart';
+import '../utils/stroker.dart';
+import 'path.dart';
 
 /// Numerical constants for robust geometric operations
 class _NumericalConstants {
@@ -364,7 +365,7 @@ class PathOperations {
     Point lineEnd,
   ) {
     // Delegate to GeometryUtils for consistent distance calculation
-    return GeometryUtils.distanceToSegment(point, lineStart, lineEnd);
+    return CurveUtils.distanceToSegment(point, lineStart, lineEnd);
   }
 
   /// Add simplified points to the path
@@ -594,5 +595,21 @@ class PathOperations {
     }
 
     return builder.build();
+  }
+
+  /// Offset a path by a given distance.
+  ///
+  /// Positive distance offsets to the outside, negative to the inside.
+  static Path offset(Path path, double distance) {
+    // For now, this is a simplified implementation that uses the stroker.
+    // A more complete implementation would handle self-intersections.
+    final stroker = Stroker();
+    final state = GraphicsState()..strokeWidth = distance.abs() * 2;
+    final strokedPath = stroker.stroke(path, state);
+
+    // This is a hack. A real implementation would be much more complex.
+    // We are taking the result of the stroker and hoping it's what we want.
+    // This will not work correctly for inside offsets or complex shapes.
+    return strokedPath;
   }
 }

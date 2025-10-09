@@ -1,10 +1,12 @@
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
 
 void main() async {
   // Create graphics engine
-  final engine = GraphicsEngine(1200, 800);
+  const filesystem = LocalGraphicsFileSystem();
+  final engine = GraphicsEngine(1200, 800, filesystem: filesystem);
   engine.clear(const Color(0xFFF5F5F5));
 
   // Demo 1: Advanced Clipping with Fill Rules

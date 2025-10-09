@@ -45,6 +45,35 @@ abstract class GradientPaint extends Paint {
     stops.sort((a, b) => a.offset.compareTo(b.offset));
   }
 
+  /// Adds a color stop to the gradient while maintaining stop ordering.
+  void addColorStop(double offset, Color color) {
+    final clampedOffset = offset.isFinite ? offset.clamp(0.0, 1.0) : 0.0;
+    stops.add(ColorStop(clampedOffset.toDouble(), color));
+    stops.sort((a, b) => a.offset.compareTo(b.offset));
+  }
+
+  /// Replaces the gradient's stops with [newStops], normalizing offsets.
+  void setColorStops(Iterable<ColorStop> newStops) {
+    stops
+      ..clear()
+      ..addAll(
+        newStops.map(
+          (stop) => ColorStop(
+            stop.offset.isFinite
+                ? stop.offset.clamp(0.0, 1.0)
+                : 0.0,
+            stop.color,
+          ),
+        ),
+      );
+    stops.sort((a, b) => a.offset.compareTo(b.offset));
+  }
+
+  /// Removes all color stops from the gradient.
+  void clearColorStops() {
+    stops.clear();
+  }
+
   /// Apply spread method to gradient parameter
   double applySpread(double t) {
     switch (spread) {
@@ -89,23 +118,50 @@ class LinearGradient extends GradientPaint {
   final Point startPoint;
   final Point endPoint;
 
+  // Cached gradient vector components
+  late final double _dx;
+  late final double _dy;
+  late final double _lengthSquared;
+
   LinearGradient({
     required this.startPoint,
     required this.endPoint,
     required List<ColorStop> stops,
     GradientSpread spread = GradientSpread.pad,
-  }) : super(stops: stops, spread: spread);
+  }) : super(stops: stops, spread: spread) {
+    _dx = endPoint.x - startPoint.x;
+    _dy = endPoint.y - startPoint.y;
+    _lengthSquared = _dx * _dx + _dy * _dy;
+  }
 
   @override
-  Color getColorAt(Point point, Matrix2D inverseTransform) {
-    final userPoint = inverseTransform.transform(point);
-    final gradientVector = endPoint - startPoint;
-    final pointVector = userPoint - startPoint;
-    double t = (pointVector.dot(gradientVector)) / gradientVector.length2;
+  Color getColorAt(Point point, Matrix2D inverse) {
+    // Inline transform: point -> user space
+    final ux = inverse.a * point.x + inverse.c * point.y + inverse.tx;
+    final uy = inverse.b * point.x + inverse.d * point.y + inverse.ty;
 
-    // Apply spread method and get color
+    // Inline dot product and projection
+    final px = ux - startPoint.x;
+    final py = uy - startPoint.y;
+    double t = (px * _dx + py * _dy) / _lengthSquared;
+
     t = applySpread(t);
     return getColorAtOffset(t);
+  }
+
+  /// Get gradient parameter t at specific coordinates (for incremental sampling)
+  double getTAt(double x, double y, Matrix2D inverse) {
+    final ux = inverse.a * x + inverse.c * y + inverse.tx;
+    final uy = inverse.b * x + inverse.d * y + inverse.ty;
+    final px = ux - startPoint.x;
+    final py = uy - startPoint.y;
+    return (px * _dx + py * _dy) / _lengthSquared;
+  }
+
+  /// Get delta of t when moving one pixel to the right (for scanline rendering)
+  double getTDeltaX(Matrix2D inverse) {
+    // When x increases by 1, user space changes by (inverse.a, inverse.b)
+    return (inverse.a * _dx + inverse.b * _dy) / _lengthSquared;
   }
 }
 
@@ -114,24 +170,33 @@ class RadialGradient extends GradientPaint {
   final double radius;
   final Point? focal; // Optional focal point for non-centered gradients
 
+  late final double _originX;
+  late final double _originY;
+
   RadialGradient({
     required this.center,
     required this.radius,
     required List<ColorStop> stops,
     GradientSpread spread = GradientSpread.pad,
     this.focal,
-  }) : super(stops: stops, spread: spread);
+  }) : super(stops: stops, spread: spread) {
+    final origin = focal ?? center;
+    _originX = origin.x;
+    _originY = origin.y;
+  }
 
   @override
-  Color getColorAt(Point point, Matrix2D inverseTransform) {
-    final userPoint = inverseTransform.transform(point);
+  Color getColorAt(Point point, Matrix2D inverse) {
+    // Inline transform
+    final ux = inverse.a * point.x + inverse.c * point.y + inverse.tx;
+    final uy = inverse.b * point.x + inverse.d * point.y + inverse.ty;
 
-    // Use focal point if provided, otherwise use center
-    final gradientOrigin = focal ?? center;
-    final distance = (userPoint - gradientOrigin).length;
+    // Inline distance calculation
+    final dx = ux - _originX;
+    final dy = uy - _originY;
+    final distance = math.sqrt(dx * dx + dy * dy);
     double t = distance / radius;
 
-    // Apply spread method and get color
     t = applySpread(t);
     return getColorAtOffset(t);
   }
@@ -150,27 +215,24 @@ class ConicalGradient extends GradientPaint {
   }) : super(stops: stops, spread: spread);
 
   @override
-  Color getColorAt(Point point, Matrix2D inverseTransform) {
-    final userPoint = inverseTransform.transform(point);
+  Color getColorAt(Point point, Matrix2D inverse) {
+    // Inline transform
+    final ux = inverse.a * point.x + inverse.c * point.y + inverse.tx;
+    final uy = inverse.b * point.x + inverse.d * point.y + inverse.ty;
 
     // Calculate angle from center
-    final dx = userPoint.x - center.x;
-    final dy = userPoint.y - center.y;
+    final dx = ux - center.x;
+    final dy = uy - center.y;
 
     if (dx == 0 && dy == 0) {
-      // At the center point, use first color
       return stops.isNotEmpty ? stops.first.color : const Color(0x00000000);
     }
 
-    // Calculate angle and normalize to [0, 1]
+    // Calculate angle and normalize
     double angle = math.atan2(dy, dx) - startAngle;
-    // Normalize to [0, 2π]
     angle = MathUtils.normalizeAngle(angle);
 
-    // Convert to [0, 1] range
     double t = angle / (2 * math.pi);
-
-    // Apply spread method and get color
     t = applySpread(t);
     return getColorAtOffset(t);
   }

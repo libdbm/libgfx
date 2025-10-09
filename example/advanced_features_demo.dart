@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
 import 'package:libgfx/src/color/color_utils.dart';
 
@@ -9,7 +10,8 @@ Future<void> main() async {
   print('=====================');
   print('Testing: Text API, Advanced Clipping, and Blend Modes');
 
-  final engine = GraphicsEngine(1200, 900);
+  const filesystem = LocalGraphicsFileSystem();
+  final engine = GraphicsEngine(1200, 900, filesystem: filesystem);
   engine.clear(const Color(0xFFF5F5F5));
 
   // Load a font if available

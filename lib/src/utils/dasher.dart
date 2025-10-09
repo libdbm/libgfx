@@ -2,7 +2,7 @@ import 'dart:math';
 
 import '../paths/path.dart';
 import '../point.dart';
-import 'geometry_utils.dart';
+import 'curve_utils.dart';
 
 /// A utility to convert a path into a dashed path by breaking it into segments.
 class Dasher {
@@ -102,7 +102,7 @@ class Dasher {
         final p2 = cmd.points[1];
         final p3 = cmd.points[2];
         points.addAll(
-          GeometryUtils.flattenCubicBezier(
+          CurveUtils.flattenCubicBezier(
             currentPoint,
             p1,
             p2,
@@ -112,7 +112,7 @@ class Dasher {
         );
         currentPoint = p3;
       } else if (cmd.type == PathCommandType.arc && cmd is ArcCommand) {
-        final arcPoints = GeometryUtils.flattenArc(
+        final arcPoints = CurveUtils.flattenArc(
           currentPoint,
           cmd,
           tolerance: 0.2,
@@ -120,7 +120,7 @@ class Dasher {
         points.addAll(arcPoints.skip(1));
         currentPoint = arcPoints.last;
       } else if (cmd.type == PathCommandType.ellipse && cmd is EllipseCommand) {
-        final ellipsePoints = GeometryUtils.flattenEllipse(
+        final ellipsePoints = CurveUtils.flattenEllipse(
           currentPoint,
           cmd,
           tolerance: 0.2,

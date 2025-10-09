@@ -4,6 +4,7 @@ import 'utils/dasher.dart';
 import 'graphics_state.dart';
 import 'image/image_renderer.dart';
 import 'matrix.dart';
+import 'rectangle.dart';
 import 'paths/path.dart';
 import 'rasterize/rasterizer.dart';
 import 'rasterize/implementations/basic_rasterizer.dart';
@@ -88,16 +89,112 @@ class GraphicsContext {
     ImageFilter filter = ImageFilter.nearest,
     double opacity = 1.0,
   }) {
-    // Create transform that positions the image and handles Y-flip
-    // In graphics space, image origin is bottom-left
-    final imageTransform = Matrix2D.identity()
-      ..multiply(state.transform)
-      ..translate(x, y)
-      // Flip Y to match graphics coordinate system
-      ..translate(0, image.height.toDouble())
+    _renderImage(
+      image,
+      dx: x,
+      dy: y,
+      scaleX: 1.0,
+      scaleY: 1.0,
+      filter: filter,
+      opacity: opacity,
+    );
+  }
+
+  void drawImageScaled(
+    Bitmap image,
+    double x,
+    double y,
+    double width,
+    double height, {
+    ImageFilter filter = ImageFilter.nearest,
+    double opacity = 1.0,
+  }) {
+    if (width == 0 || height == 0) {
+      return;
+    }
+
+    final scaleX = width / image.width;
+    final scaleY = height / image.height;
+
+    _renderImage(
+      image,
+      dx: x,
+      dy: y,
+      scaleX: scaleX,
+      scaleY: scaleY,
+      filter: filter,
+      opacity: opacity,
+    );
+  }
+
+  void drawImageRect(
+    Bitmap image,
+    double sx,
+    double sy,
+    double sw,
+    double sh,
+    double dx,
+    double dy,
+    double dw,
+    double dh, {
+    ImageFilter filter = ImageFilter.nearest,
+    double opacity = 1.0,
+  }) {
+    if (sw <= 0 || sh <= 0 || dw == 0 || dh == 0) {
+      return;
+    }
+
+    final scaleX = dw / sw;
+    final scaleY = dh / sh;
+    final sourceRect = Rectangle<double>(sx, sy, sw, sh);
+
+    _renderImage(
+      image,
+      dx: dx,
+      dy: dy,
+      scaleX: scaleX,
+      scaleY: scaleY,
+      filter: filter,
+      opacity: opacity,
+      sourceRect: sourceRect,
+    );
+  }
+
+  void _renderImage(
+    Bitmap image, {
+    required double dx,
+    required double dy,
+    required double scaleX,
+    required double scaleY,
+    ImageFilter filter = ImageFilter.nearest,
+    double opacity = 1.0,
+    Rectangle<double>? sourceRect,
+  }) {
+    final effectiveSourceRect = sourceRect ??
+        Rectangle<double>(
+          0,
+          0,
+          image.width.toDouble(),
+          image.height.toDouble(),
+        );
+
+    final sourceLeft = effectiveSourceRect.left;
+    final sourceTop = effectiveSourceRect.top;
+    final sourceHeight = effectiveSourceRect.height;
+
+    final engineToDevice = Matrix2D.identity()
+      ..translate(0, bitmap.height.toDouble() - 1)
       ..scale(1.0, -1.0);
 
-    // Use EnhancedImageRenderer for high-quality rendering
+    final imageTransform = Matrix2D.identity()
+      ..multiply(engineToDevice)
+      ..multiply(state.transform)
+      ..translate(dx, dy)
+      ..scale(scaleX, scaleY)
+      ..translate(-sourceLeft, -sourceTop)
+      ..translate(0, sourceHeight - 1)
+      ..scale(1.0, -1.0);
+
     ImageRenderer.renderImage(
       bitmap,
       image,
@@ -105,6 +202,7 @@ class GraphicsContext {
       state,
       filter: filter,
       opacity: opacity,
+      sourceRect: effectiveSourceRect,
     );
   }
 

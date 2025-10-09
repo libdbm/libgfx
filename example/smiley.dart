@@ -1,8 +1,9 @@
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
 
-void main() async {
+Future<void> main() async {
   const width = 150;
   const height = 150;
 
@@ -16,7 +17,8 @@ void main() async {
   const eyeX = centerX - eyeOffsetX;
   const eyeY = centerY - eyeOffsetY;
 
-  final engine = GraphicsEngine(width, height);
+  const filesystem = LocalGraphicsFileSystem();
+  final engine = GraphicsEngine(width, height, filesystem: filesystem);
 
   // Clear background to white
   engine.clear(const Color.fromARGB(255, 255, 255, 255));

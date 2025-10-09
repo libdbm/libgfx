@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'image/bitmap.dart';
@@ -8,9 +7,7 @@ import 'image/codecs/p6_codec.dart';
 import 'clipping/clip_region.dart';
 import 'color/color.dart';
 import 'color/color_utils.dart';
-import 'errors.dart';
 import 'fonts/font.dart';
-import 'fonts/font_error_messages.dart';
 import 'fonts/ttf/ttf_font.dart';
 import 'graphics_context.dart';
 import 'graphics_state.dart';
@@ -31,6 +28,7 @@ import 'rasterize/rasterizer.dart';
 import 'text/text_engine.dart';
 import 'text/text_types.dart' show TextAlign, TextBaseline, TextMetrics;
 import 'paths/path_utils.dart';
+import 'io/file_system.dart';
 
 /// A simple facade for the entire graphics engine.
 ///
@@ -40,28 +38,39 @@ class GraphicsEngine {
   late final Bitmap canvas;
   late final GraphicsContext _context;
   late final TextEngine _textEngine;
-
-  // Text properties for backward compatibility
-  Font? _currentFont;
-  double _fontSize = 12.0;
-  TextAlign _textAlign = TextAlign.left;
-  TextBaseline _textBaseline = TextBaseline.alphabetic;
+  GraphicsFileSystem? _filesystem;
 
   /// Creates a new graphics engine with a canvas of the specified size.
   /// Optionally accepts a custom rasterizer implementation.
-  GraphicsEngine(int width, int height, {Rasterizer? rasterizer}) {
-    GraphicsEngine.withCanvas(Bitmap(width, height), rasterizer: rasterizer);
-  }
+  GraphicsEngine(
+    int width,
+    int height, {
+    Rasterizer? rasterizer,
+    GraphicsFileSystem? filesystem,
+  }) : this.withCanvas(
+         Bitmap(width, height),
+         rasterizer: rasterizer,
+         filesystem: filesystem,
+       );
 
   /// Creates a new graphics engine using a bitmap as a canvas
   /// Optionally accepts a custom rasterizer implementation.
-  GraphicsEngine.withCanvas(Bitmap canvas, {Rasterizer? rasterizer}) {
+  GraphicsEngine.withCanvas(
+    Bitmap bitmapCanvas, {
+    Rasterizer? rasterizer,
+    GraphicsFileSystem? filesystem,
+  }) {
+    canvas = bitmapCanvas;
     _context = GraphicsContext(canvas, rasterizer: rasterizer);
-    _textEngine = TextEngine(
-      fontSize: _fontSize,
-      textAlign: _textAlign,
-      textBaseline: _textBaseline,
-    );
+    _textEngine = TextEngine();
+    _filesystem = filesystem;
+  }
+
+  /// Current filesystem adapter used for font/image IO.
+  GraphicsFileSystem? get filesystem => _filesystem;
+
+  set filesystem(GraphicsFileSystem? value) {
+    _filesystem = value;
   }
 
   /// Sets the current path to be used as a clipping mask.
@@ -321,7 +330,7 @@ class GraphicsEngine {
     return LinearGradient(
       startPoint: Point(x0, y0),
       endPoint: Point(x1, y1),
-      stops: [], // Stops should be added using addColorStop
+      stops: [], // Populate using gradient.addColorStop(...)
     );
   }
 
@@ -339,7 +348,7 @@ class GraphicsEngine {
     return RadialGradient(
       center: Point(cx1, cy1),
       radius: r1,
-      stops: [], // Stops should be added using addColorStop
+      stops: [], // Populate using gradient.addColorStop(...)
       focal: r0 > 0 ? Point(cx0, cy0) : null,
     );
   }
@@ -349,7 +358,7 @@ class GraphicsEngine {
     return ConicalGradient(
       center: Point(cx, cy),
       startAngle: angle,
-      stops: [], // Stops should be added using addColorStop
+      stops: [], // Populate using gradient.addColorStop(...)
     );
   }
 
@@ -362,36 +371,38 @@ class GraphicsEngine {
     return PatternPaint(pattern: image, repeat: repeat, transform: transform);
   }
 
-  /// Saves the canvas as a PPM image file
-  Future<void> saveToFile(String filename) async {
-    final file = File(filename);
-
-    // Create directory if it doesn't exist
-    final dir = file.parent;
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
+  /// Saves the canvas, auto-detecting format from [filename] when possible.
+  Future<void> saveToFile(String filename, {String? format}) async {
+    final fs = _filesystem;
+    if (fs == null) {
+      throw UnsupportedError(
+        'No GraphicsFileSystem configured. Attach one via the constructor or the filesystem setter before calling saveToFile.',
+      );
     }
 
-    // Write PPM header
-    final buffer = StringBuffer();
-    buffer.writeln('P6');
-    buffer.writeln('${canvas.width} ${canvas.height}');
-    buffer.writeln('255');
+    final targetFormat = format ?? _inferFormatFromFilename(filename) ?? 'p6';
+    final bytes = saveImageToBytes(canvas, targetFormat);
+    await fs.writeFile(filename, bytes);
+  }
 
-    // Write pixel data
-    final bytes = <int>[];
-    bytes.addAll(buffer.toString().codeUnits);
-
-    for (int y = 0; y < canvas.height; y++) {
-      for (int x = 0; x < canvas.width; x++) {
-        final color = canvas.getPixel(x, y);
-        bytes.add(color.red);
-        bytes.add(color.green);
-        bytes.add(color.blue);
-      }
+  String? _inferFormatFromFilename(String filename) {
+    final dotIndex = filename.lastIndexOf('.');
+    if (dotIndex == -1 || dotIndex == filename.length - 1) {
+      return null;
     }
 
-    await file.writeAsBytes(bytes);
+    final extension = filename.substring(dotIndex + 1).toLowerCase();
+    switch (extension) {
+      case 'png':
+      case 'bmp':
+      case 'p3':
+      case 'p6':
+        return extension;
+      case 'ppm':
+        return 'p6';
+      default:
+        return null;
+    }
   }
 
   /// Gets the canvas bitmap data as bytes
@@ -449,8 +460,7 @@ class GraphicsEngine {
     double dw,
     double dh,
   ) {
-    // Simplified implementation - just draw at original size for now
-    _context.drawImage(image, dx, dy);
+    _context.drawImageScaled(image, dx, dy, dw, dh);
   }
 
   /// Draws a portion of an image onto the canvas
@@ -465,8 +475,17 @@ class GraphicsEngine {
     double dw,
     double dh,
   ) {
-    // Simplified implementation - just draw at original size for now
-    _context.drawImage(image, dx, dy);
+    _context.drawImageRect(
+      image,
+      sx,
+      sy,
+      sw,
+      sh,
+      dx,
+      dy,
+      dw,
+      dh,
+    );
   }
 
   // ============================================================================
@@ -475,83 +494,65 @@ class GraphicsEngine {
 
   /// Sets the current font from a file
   Future<void> setFontFromFile(String fontPath) async {
+    final fs = _filesystem;
+    if (fs == null) {
+      throw UnsupportedError(
+        'No GraphicsFileSystem configured. Attach one via the constructor or the filesystem setter before calling setFontFromFile.',
+      );
+    }
+
     try {
-      final file = File(fontPath);
-      if (await file.exists()) {
-        final bytes = await file.readAsBytes();
+      final bytes = await fs.readFile(fontPath);
+      if (bytes != null) {
         setFontFromBytes(bytes);
       } else {
-        // If file doesn't exist, just set null (examples can still run without font)
-        _currentFont = null;
-        _textEngine.font = _currentFont;
+        _textEngine.font = null;
       }
-    } catch (e) {
-      // On error, just set null font
-      _currentFont = null;
-      _textEngine.font = _currentFont;
+    } catch (_) {
+      _textEngine.font = null;
     }
   }
 
   /// Sets the current font from bytes
   void setFontFromBytes(Uint8List bytes) {
-    _currentFont = TTFFont.fromBytes(bytes);
-    _textEngine.font = _currentFont;
+    _textEngine.font = TTFFont.fromBytes(bytes);
   }
 
   /// Sets the font size in pixels
   void setFontSize(double size) {
-    _fontSize = size;
     _textEngine.fontSize = size;
   }
 
   /// Sets the text alignment (left, center, right)
   void setTextAlign(TextAlign align) {
-    _textAlign = align;
     _textEngine.textAlign = align;
   }
 
   /// Sets the text baseline (alphabetic, top, middle, bottom)
   void setTextBaseline(TextBaseline baseline) {
-    _textBaseline = baseline;
     _textEngine.textBaseline = baseline;
   }
 
   /// Fills text at the specified position using the current fill style
   void fillText(String text, double x, double y) {
-    if (_currentFont == null) {
-      throw FontException(FontErrorMessages.noFontSet);
-    }
-
     final path = _textEngine.generateTextPath(text, x, y);
     fill(path);
   }
 
   /// Strokes text at the specified position using the current stroke style
   void strokeText(String text, double x, double y) {
-    if (_currentFont == null) {
-      throw FontException(FontErrorMessages.noFontSet);
-    }
-
     final path = _textEngine.generateTextPath(text, x, y);
     stroke(path);
   }
 
   /// Uses text as a clipping path
   void clipText(String text, double x, double y) {
-    if (_currentFont == null) {
-      throw FontException(FontErrorMessages.noFontSet);
-    }
-
     final path = _textEngine.generateTextPath(text, x, y);
     clip(path);
   }
 
   /// Fills and strokes text at the specified position
   void fillAndStrokeText(String text, double x, double y) {
-    if (_currentFont == null) {
-      throw FontException(FontErrorMessages.noFontSet);
-    }
-
     final path = _textEngine.generateTextPath(text, x, y);
     fill(path);
     stroke(path);
@@ -559,24 +560,20 @@ class GraphicsEngine {
 
   /// Measures text and returns metrics
   TextMetrics measureText(String text) {
-    if (_currentFont == null) {
-      throw FontException(FontErrorMessages.noFontSetMeasure);
-    }
-
     return _textEngine.measureText(text);
   }
 
   /// Gets the current font
-  Font? get currentFont => _currentFont;
+  Font? get currentFont => _textEngine.font;
 
   /// Gets the current font size
-  double get fontSize => _fontSize;
+  double get fontSize => _textEngine.fontSize;
 
   /// Gets the current text alignment
-  TextAlign get textAlign => _textAlign;
+  TextAlign get textAlign => _textEngine.textAlign;
 
   /// Gets the current text baseline
-  TextBaseline get textBaseline => _textBaseline;
+  TextBaseline get textBaseline => _textEngine.textBaseline;
 
   /// Get a pixel color at the specified coordinates
   Color getPixel(int x, int y) {

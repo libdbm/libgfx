@@ -20,6 +20,16 @@ Then run:
 dart pub get
 ```
 
+## Breaking changes: GraphicsFileSystem requirement
+
+Recent versions introduced a pluggable file system to decouple libgfx from dart:io. As a result, functions that perform IO (saving images, loading fonts from files) now require a configured GraphicsFileSystem.
+
+Migration:
+- VM/CLI: import `package:libgfx/io/local_file_system.dart` and either pass `filesystem: const LocalGraphicsFileSystem()` to the GraphicsEngine constructor or set `engine.filesystem = const LocalGraphicsFileSystem();` before calling `saveToFile` or `setFontFromFile`.
+- Web/other: implement `GraphicsFileSystem` for your platform (e.g., HTTP/asset-backed) and provide it to the engine.
+
+See the API Reference section “File IO and GraphicsFileSystem” for details.
+
 ## Basic Concepts
 
 ### GraphicsEngine
@@ -68,10 +78,11 @@ Let's create a simple drawing with basic shapes:
 
 ```dart
 import 'package:libgfx/libgfx.dart';
+import 'package:libgfx/io/local_file_system.dart';
 
 void main() async {
-  // Create canvas
-  final engine = GraphicsEngine(400, 400);
+  // Create canvas and configure filesystem for IO (required for save/load)
+  final engine = GraphicsEngine(400, 400, filesystem: const LocalGraphicsFileSystem());
   
   // Set background (optional - default is transparent)
   engine.clear(const Color(0xFFF0F0F0));

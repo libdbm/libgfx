@@ -1,10 +1,10 @@
 import '../color/color.dart';
 import '../graphics_state.dart';
 import '../paint.dart';
-import 'graphics_state_base.dart';
+import 'state_base.dart';
 
 /// Manages paint and styling state
-class PaintState extends GraphicsStateBase<PaintState> {
+class PaintState extends StateBase<PaintState> {
   Paint _fillPaint;
   Paint _strokePaint;
   BlendMode _blendMode;

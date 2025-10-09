@@ -15,6 +15,7 @@ Complete API documentation for libgfx graphics engine.
 - [Filters](#filters)
 - [Clipping](#clipping)
 - [Blend Modes](#blend-modes)
+- [File IO and GraphicsFileSystem](#file-io-and-graphicsfilesystem)
 
 ## GraphicsEngine
 
@@ -611,3 +612,48 @@ libgfx is pure Dart and runs on all platforms that support Dart:
 - [Getting Started Guide](getting-started.md)
 - [Advanced Features](advanced-features.md)
 - [Examples](examples.md)
+
+## File IO and GraphicsFileSystem
+
+libgfx performs all file IO (reading fonts/images and writing images) through a pluggable GraphicsFileSystem so it can run on the web and in isolates without depending on dart:io.
+
+- Interface: GraphicsFileSystem (lib/src/io/file_system.dart)
+  - Future<Uint8List?> readFile(String path)
+  - Future<void> writeFile(String path, List<int> bytes)
+- Default VM adapter: LocalGraphicsFileSystem (import from package:libgfx/io/local_file_system.dart)
+
+When you want to use saveToFile or setFontFromFile you must attach a GraphicsFileSystem to the engine.
+
+Example (VM/CLI):
+
+```dart
+import 'package:libgfx/libgfx.dart';
+import 'package:libgfx/io/local_file_system.dart';
+
+void main() async {
+  final engine = GraphicsEngine(400, 300, filesystem: const LocalGraphicsFileSystem());
+
+  engine.setFillColor(const Color(0xFF009688));
+  engine.fillRect(50, 50, 200, 150);
+
+  // Load a font using the filesystem
+  await engine.setFontFromFile('data/fonts/Roboto-Regular.ttf');
+  engine.setFontSize(24);
+  engine.fillText('Hello FS', 80, 130);
+
+  // Save using the filesystem
+  await engine.saveToFile('output/example.png');
+}
+```
+
+Methods that require a configured filesystem:
+- GraphicsEngine.saveToFile
+- GraphicsEngine.setFontFromFile
+- Any helper in io/ that reads fonts/images via the filesystem
+
+Notes:
+- On web, provide your own GraphicsFileSystem implementation backed by HTTP or asset bundles.
+- LocalGraphicsFileSystem lives under package:libgfx/io/ so apps targeting the VM can opt-in without pulling dart:io into web builds.
+
+Breaking change notice:
+- Recent versions introduced GraphicsFileSystem and removed direct dart:io usage from core APIs. If you previously called saveToFile or setFontFromFile without configuration, you now must set engine.filesystem or pass filesystem: in the constructor. See Getting Started for migration tips.

@@ -1,14 +1,16 @@
 import 'dart:math' as math;
 
-import 'package:libgfx/src/color/color.dart';
-import 'package:libgfx/src/graphics_engine_facade.dart';
-import 'package:libgfx/src/paths/path.dart';
-import 'package:libgfx/src/point.dart';
+import 'package:libgfx/io/local_file_system.dart';
+import 'package:libgfx/libgfx.dart';
 
 final _random = math.Random();
+TTFFont? _font;
 
-void main() async {
-  final engine = GraphicsEngine(1200, 800);
+Future<void> main() async {
+  const filesystem = LocalGraphicsFileSystem();
+  _font = await _loadDemoFont(filesystem);
+
+  final engine = GraphicsEngine(1200, 800, filesystem: filesystem);
 
   // Set background
   engine.clear(const Color(0xFF1a1a1a));
@@ -20,6 +22,27 @@ void main() async {
 
   await engine.saveToFile('output/path_operations_demo.ppm');
   print('Saved output/path_operations_demo.ppm');
+}
+
+Future<TTFFont?> _loadDemoFont(LocalGraphicsFileSystem filesystem) async {
+  const candidates = [
+    'data/fonts/Roboto-Regular.ttf',
+    'data/fonts/NotoSans-Regular.ttf',
+    'data/fonts/DejaVuSans.ttf',
+  ];
+
+  for (final path in candidates) {
+    try {
+      final font = await TTFFont.loadFromFile(path, filesystem: filesystem);
+      print('Loaded font for labels: $path');
+      return font;
+    } catch (_) {
+      // Try next candidate.
+    }
+  }
+
+  print('Could not load any demo font; labels will be skipped.');
+  return null;
 }
 
 void demonstratePathSimplification(GraphicsEngine engine) {
@@ -143,29 +166,18 @@ void demonstratePathOffset(GraphicsEngine engine) {
   engine.fill(starPath);
   engine.stroke(starPath);
 
-  // Note: Path offset functionality is not yet implemented
-  // This would draw outward and inward offsets of the star shape
+  // Draw outward and inward offsets of the star shape
+  final outwardOffset = PathOperations.offset(starPath, 10);
+  final inwardOffset = PathOperations.offset(starPath, -10);
 
-  // For now, just draw the star again translated
-  engine.translate(0, 200);
-  engine.fill(starPath);
-  engine.stroke(starPath);
+  engine.setStrokeColor(const Color(0xFF00FF00));
+  engine.stroke(outwardOffset);
+
+  engine.setStrokeColor(const Color(0xFFFF00FF));
+  engine.stroke(inwardOffset);
 
   // Labels
-  drawLabel(
-    engine,
-    "Original + Outward Offsets",
-    -80,
-    -240,
-    const Color(0xFFFFFFFF),
-  );
-  drawLabel(
-    engine,
-    "Original + Inward Offset",
-    -80,
-    -40,
-    const Color(0xFFFFFFFF),
-  );
+  drawLabel(engine, "Original + Offsets", -80, -40, const Color(0xFFFFFFFF));
 
   engine.restore();
 }
@@ -256,16 +268,6 @@ void demonstrateBooleanOperations(GraphicsEngine engine) {
   engine.restore();
 }
 
-void drawPoint(GraphicsEngine engine, Point point, double size) {
-  final pointBuilder = PathBuilder()
-    ..moveTo(point.x - size, point.y - size)
-    ..lineTo(point.x + size, point.y - size)
-    ..lineTo(point.x + size, point.y + size)
-    ..lineTo(point.x - size, point.y + size)
-    ..close();
-  engine.fill(pointBuilder.build());
-}
-
 void drawLabel(
   GraphicsEngine engine,
   String text,
@@ -273,88 +275,19 @@ void drawLabel(
   double y,
   Color color,
 ) {
-  // Simple text representation using basic shapes
-  // This is a placeholder since we don't have text rendering yet
+  if (_font == null) return;
   engine.save();
   engine.translate(x, y);
   engine.setFillColor(color);
-
-  // Draw a simple rectangle as text placeholder
-  final labelBuilder = PathBuilder()
-    ..moveTo(0, 0)
-    ..lineTo(text.length * 8.0, 0)
-    ..lineTo(text.length * 8.0, 12)
-    ..lineTo(0, 12)
-    ..close();
-  engine.stroke(labelBuilder.build());
-
+  final path = _font!.getTextPath(text, 0, 0, 12);
+  engine.fill(path);
   engine.restore();
 }
 
-void drawSimpleText(GraphicsEngine engine, String text, double x, double y) {
-  // Very basic "text" using simple shapes
+void drawPoint(GraphicsEngine engine, Point point, double radius) {
   engine.save();
-  engine.translate(x, y);
-
-  for (int i = 0; i < text.length; i++) {
-    final char = text[i];
-    engine.save();
-    engine.translate(i * 8.0, 0);
-
-    // Draw simple character representations
-    switch (char) {
-      case 'O':
-        drawCircle(engine, 0, 0, 3);
-        break;
-      case 'I':
-      case 'l':
-        drawLine(engine, 0, -5, 0, 5);
-        break;
-      default:
-        // Generic character representation
-        final charBuilder = PathBuilder()
-          ..moveTo(-2, -5)
-          ..lineTo(2, -5)
-          ..lineTo(2, 5)
-          ..lineTo(-2, 5)
-          ..close();
-        engine.stroke(charBuilder.build());
-    }
-
-    engine.restore();
-  }
-
+  engine.translate(point.x, point.y);
+  engine.setFillColor(const Color(0xFFFFFFFF));
+  engine.fillCircle(0, 0, radius);
   engine.restore();
-}
-
-void drawCircle(GraphicsEngine engine, double cx, double cy, double radius) {
-  final builder = PathBuilder();
-  const segments = 16;
-
-  for (int i = 0; i <= segments; i++) {
-    final angle = (i / segments) * 2 * math.pi;
-    final x = cx + radius * math.cos(angle);
-    final y = cy + radius * math.sin(angle);
-
-    if (i == 0) {
-      builder.moveTo(x, y);
-    } else {
-      builder.lineTo(x, y);
-    }
-  }
-
-  engine.stroke(builder.build());
-}
-
-void drawLine(
-  GraphicsEngine engine,
-  double x1,
-  double y1,
-  double x2,
-  double y2,
-) {
-  final builder = PathBuilder()
-    ..moveTo(x1, y1)
-    ..lineTo(x2, y2);
-  engine.stroke(builder.build());
 }

@@ -1,10 +1,13 @@
 import 'dart:io';
 
+import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
 import 'package:libgfx/src/graphics_context.dart';
 import 'package:test/test.dart';
 
 void main() {
+  const filesystem = LocalGraphicsFileSystem();
+
   group('Character Holes (Counter) Tests', () {
     late List<File> fontFiles;
 
@@ -21,7 +24,10 @@ void main() {
 
     test('characters with holes have multiple contours', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(fontFiles.first.path);
+        final font = await TTFFont.loadFromFile(
+          fontFiles.first.path,
+          filesystem: filesystem,
+        );
 
         // Characters that should have holes (multiple contours)
         final charsWithHoles = [
@@ -72,7 +78,10 @@ void main() {
 
     test('characters without holes have single contours', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(fontFiles.first.path);
+        final font = await TTFFont.loadFromFile(
+          fontFiles.first.path,
+          filesystem: filesystem,
+        );
 
         // Characters that should NOT have holes (single contours)
         // Note: 'i' and 'j' often have separate contours for dots, so we exclude them
@@ -168,7 +177,10 @@ void main() {
         final engine = GraphicsEngine(200, 100);
         engine.clear(const Color(0xFFFFFFFF)); // White background
 
-        final font = await TTFFont.loadFromFile(fontFiles.first.path);
+        final font = await TTFFont.loadFromFile(
+          fontFiles.first.path,
+          filesystem: filesystem,
+        );
 
         // Render a character with a hole
         final testText = 'eOaB8';

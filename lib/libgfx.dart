@@ -38,3 +38,4 @@ export 'src/rasterize/rasterizer.dart';
 export 'src/rectangle.dart' show Rectangle;
 export 'src/utils/transform_utils.dart'
     show TransformUtils, ScaleMode, Alignment;
+export 'src/io/file_system.dart' show GraphicsFileSystem;

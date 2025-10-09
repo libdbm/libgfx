@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
 
 /// Comprehensive Unicode text rendering demonstration
@@ -7,7 +8,8 @@ Future<void> main() async {
   print('Unicode Text Rendering Demo\n');
   print('============================\n');
 
-  final engine = GraphicsEngine(1200, 900);
+  const filesystem = LocalGraphicsFileSystem();
+  final engine = GraphicsEngine(1200, 900, filesystem: filesystem);
   engine.clear(const Color(0xFFFAFAFA));
 
   // Initialize font fallback chain
@@ -41,7 +43,7 @@ Future<void> main() async {
   int loadedFonts = 0;
   for (final fontPath in fontPaths) {
     try {
-      await fallbackChain.addFontFromFile(fontPath);
+      await fallbackChain.addFontFromFile(fontPath, filesystem: filesystem);
       print('  ✓ Loaded: ${fontPath.split('/').last}');
       loadedFonts++;
     } catch (e) {
@@ -51,7 +53,7 @@ Future<void> main() async {
         // Try without Noto prefix
         try {
           final altPath = fontPath.replaceAll('Noto', '');
-          await fallbackChain.addFontFromFile(altPath);
+          await fallbackChain.addFontFromFile(altPath, filesystem: filesystem);
           print('  ✓ Loaded alternative: ${altPath.split('/').last}');
           loadedFonts++;
         } catch (e2) {

@@ -1,8 +1,8 @@
 import '../graphics_state.dart';
-import 'graphics_state_base.dart';
+import 'state_base.dart';
 
 /// Manages stroke styling state
-class StrokeState extends GraphicsStateBase<StrokeState> {
+class StrokeState extends StateBase<StrokeState> {
   double _strokeWidth;
   LineJoin _lineJoin;
   LineCap _lineCap;
@@ -28,7 +28,7 @@ class StrokeState extends GraphicsStateBase<StrokeState> {
   List<double>? get dashPattern => _dashPattern;
 
   void setStrokeWidth(double width) {
-    _strokeWidth = GraphicsStateBase.validatePositive(
+    _strokeWidth = StateBase.validatePositive(
       width,
       'strokeWidth',
       1.0,
@@ -44,7 +44,7 @@ class StrokeState extends GraphicsStateBase<StrokeState> {
   }
 
   void setMiterLimit(double limit) {
-    _miterLimit = GraphicsStateBase.validatePositive(limit, 'miterLimit', 4.0);
+    _miterLimit = StateBase.validatePositive(limit, 'miterLimit', 4.0);
   }
 
   void setDashPattern(List<double>? pattern) {

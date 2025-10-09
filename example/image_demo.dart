@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/src/image/bitmap.dart';
 import 'package:libgfx/src/color/color.dart';
 import 'package:libgfx/src/fonts/ttf/ttf_font.dart';
@@ -14,7 +15,8 @@ import 'package:libgfx/src/point.dart';
 void main() async {
   print('Creating comprehensive image rendering demonstration...');
 
-  final engine = GraphicsEngine(1600, 2000);
+  const filesystem = LocalGraphicsFileSystem();
+  final engine = GraphicsEngine(1600, 2000, filesystem: filesystem);
   engine.clear(const Color(0xFFF0F0F0)); // Light gray background
 
   // Load font for labels
@@ -27,7 +29,10 @@ void main() async {
       .toList();
 
   if (fontFiles.isNotEmpty) {
-    font = await TTFFont.loadFromFile(fontFiles.first.path);
+    font = await TTFFont.loadFromFile(
+      fontFiles.first.path,
+      filesystem: filesystem,
+    );
   }
 
   // Create various test images

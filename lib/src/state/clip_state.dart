@@ -1,9 +1,9 @@
 import '../clipping/clip_region.dart';
 import '../paths/path.dart';
-import 'graphics_state_base.dart';
+import 'state_base.dart';
 
 /// Manages clipping state
-class ClipState extends GraphicsStateBase<ClipState> {
+class ClipState extends StateBase<ClipState> {
   Path? _clipPath;
   ClipRegion? _clipRegion;
 

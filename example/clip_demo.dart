@@ -1,12 +1,14 @@
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
 
 Future<void> main() async {
   final width = 600;
   final height = 600;
 
-  final engine = GraphicsEngine(width, height);
+  const filesystem = LocalGraphicsFileSystem();
+  final engine = GraphicsEngine(width, height, filesystem: filesystem);
 
   // Clear background with a dark blue
   engine.clear(const Color.fromARGB(255, 20, 30, 60));

@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/src/color/color.dart';
 import 'package:libgfx/src/graphics_engine_facade.dart';
 import 'package:libgfx/src/graphics_state.dart';
@@ -7,8 +8,9 @@ import 'package:libgfx/src/paint.dart';
 import 'package:libgfx/src/paths/path.dart';
 import 'package:libgfx/src/point.dart';
 
-void main() async {
-  final engine = GraphicsEngine(1200, 800);
+Future<void> main() async {
+  const filesystem = LocalGraphicsFileSystem();
+  final engine = GraphicsEngine(1200, 800, filesystem: filesystem);
 
   // Set background
   engine.clear(const Color(0xFF1a1a1a));

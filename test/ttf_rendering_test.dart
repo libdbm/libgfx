@@ -1,13 +1,11 @@
 import 'dart:io';
 
+import 'package:libgfx/io/local_file_system.dart';
+import 'package:libgfx/libgfx.dart';
 import 'package:test/test.dart';
 
-import '../lib/src/color/color.dart';
-import '../lib/src/fonts/ttf/ttf_font.dart';
-import '../lib/src/graphics_engine_facade.dart';
-import '../lib/src/text/text_types.dart' show TextMetrics;
-
 void main() {
+  const filesystem = LocalGraphicsFileSystem();
   group('TTF Rendering Tests', () {
     late List<File> fontFiles;
 
@@ -27,7 +25,10 @@ void main() {
       engine.clear(const Color(0xFFFFFFFF)); // White background
 
       for (final fontFile in fontFiles) {
-        final font = await TTFFont.loadFromFile(fontFile.path);
+        final font = await TTFFont.loadFromFile(
+          fontFile.path,
+          filesystem: filesystem,
+        );
         final testText = 'Test';
 
         // Get text path
@@ -43,7 +44,10 @@ void main() {
 
     test('text rendering produces non-empty paths', () async {
       for (final fontFile in fontFiles) {
-        final font = await TTFFont.loadFromFile(fontFile.path);
+        final font = await TTFFont.loadFromFile(
+          fontFile.path,
+          filesystem: filesystem,
+        );
 
         // Skip emoji fonts which may not have regular character glyphs
         if (font.familyName.toLowerCase().contains('emoji')) {
@@ -83,7 +87,10 @@ void main() {
 
     test('different font sizes produce scaled paths', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(fontFiles.first.path);
+        final font = await TTFFont.loadFromFile(
+          fontFiles.first.path,
+          filesystem: filesystem,
+        );
         final testText = 'A';
 
         final sizes = [12.0, 24.0, 48.0];
@@ -126,7 +133,10 @@ void main() {
 
     test('text positioning works correctly', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(fontFiles.first.path);
+        final font = await TTFFont.loadFromFile(
+          fontFiles.first.path,
+          filesystem: filesystem,
+        );
         final testText = 'AB';
 
         // Generate paths at different positions
@@ -155,7 +165,10 @@ void main() {
 
     test('empty text produces empty path', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(fontFiles.first.path);
+        final font = await TTFFont.loadFromFile(
+          fontFiles.first.path,
+          filesystem: filesystem,
+        );
 
         final emptyTexts = ['', '   ', '\t', '\n'];
 
@@ -171,7 +184,10 @@ void main() {
 
     test('special characters can be rendered', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(fontFiles.first.path);
+        final font = await TTFFont.loadFromFile(
+          fontFiles.first.path,
+          filesystem: filesystem,
+        );
 
         final specialChars = [
           '!@#\$%^&*()',
@@ -203,7 +219,10 @@ void main() {
 
     test('unicode characters are handled properly', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(fontFiles.first.path);
+        final font = await TTFFont.loadFromFile(
+          fontFiles.first.path,
+          filesystem: filesystem,
+        );
 
         final unicodeTexts = [
           'café', // Latin with accents
@@ -234,7 +253,10 @@ void main() {
 
     test('large text can be rendered', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(fontFiles.first.path);
+        final font = await TTFFont.loadFromFile(
+          fontFiles.first.path,
+          filesystem: filesystem,
+        );
 
         // Test with longer text
         final longText = 'The quick brown fox jumps over the lazy dog. ' * 3;
@@ -254,7 +276,10 @@ void main() {
 
     test('font metrics scaling is consistent', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(fontFiles.first.path);
+        final font = await TTFFont.loadFromFile(
+          fontFiles.first.path,
+          filesystem: filesystem,
+        );
         final testText = 'Test';
 
         // Test various font sizes

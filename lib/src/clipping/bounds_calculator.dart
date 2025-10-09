@@ -4,8 +4,8 @@ import '../matrix.dart';
 import '../paths/path.dart';
 import '../point.dart';
 import '../rectangle.dart';
+import '../utils/curve_utils.dart';
 import '../utils/math_utils.dart';
-import '../utils/geometry_utils.dart';
 
 /// Helper class to track bounds
 class _BoundsTracker {
@@ -124,7 +124,7 @@ class BoundsCalculator {
     Matrix2D transform,
     _BoundsTracker tracker,
   ) {
-    final angles = GeometryUtils.getArcExtremaAngles(
+    final angles = CurveUtils.getArcExtremaAngles(
       arc.startAngle,
       arc.endAngle,
       arc.counterClockwise,
@@ -146,7 +146,7 @@ class BoundsCalculator {
     Matrix2D transform,
     _BoundsTracker tracker,
   ) {
-    final angles = GeometryUtils.getEllipseExtremaAngles(
+    final angles = CurveUtils.getEllipseExtremaAngles(
       ellipse.startAngle,
       ellipse.endAngle,
       ellipse.rotation,

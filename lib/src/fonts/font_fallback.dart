@@ -1,13 +1,13 @@
-import 'dart:io';
-
 import '../errors.dart';
-import '../logging.dart';
 import '../paths/path.dart';
 import '../text/text_utils.dart';
 import 'font_error_messages.dart';
 import '../text/text_types.dart' show TextMetrics;
 import 'font.dart';
 import 'ttf/ttf_font.dart';
+import '../io/file_system.dart';
+import '../../io/font_fallback_loader_stub.dart'
+    if (dart.library.io) '../../io/font_fallback_loader_io.dart';
 
 /// Font fallback chain for handling missing glyphs
 class FontFallbackChain {
@@ -24,13 +24,15 @@ class FontFallbackChain {
   }
 
   /// Add a font from file
-  Future<void> addFontFromFile(String path) async {
-    final file = File(path);
-    if (!await file.exists()) {
+  Future<void> addFontFromFile(
+    String path, {
+    required GraphicsFileSystem filesystem,
+  }) async {
+    final bytes = await filesystem.readFile(path);
+    if (bytes == null) {
       throw FontException('${FontErrorMessages.fontFileNotFound}$path');
     }
 
-    final bytes = await file.readAsBytes();
     final font = TTFFont.fromBytes(bytes);
     addFont(font);
   }
@@ -220,83 +222,16 @@ class FontRun {
 
 /// System font manager for loading common system fonts
 class SystemFontManager {
-  static final Map<String, List<String>> _systemFontPaths = {
-    'darwin': [
-      // macOS
-      '/System/Library/Fonts/',
-      '/Library/Fonts/',
-      '~/Library/Fonts/',
-    ],
-    'linux': [
-      '/usr/share/fonts/',
-      '/usr/local/share/fonts/',
-      '~/.fonts/',
-      '~/.local/share/fonts/',
-    ],
-    'windows': ['C:\\Windows\\Fonts\\'],
-  };
-
-  /// Common font names to look for
-  static final List<String> _commonFonts = [
-    'Arial',
-    'Helvetica',
-    'Times',
-    'Courier',
-    'Verdana',
-    'Georgia',
-    'NotoSans',
-    'NotoSerif',
-    'DejaVu',
-    'Liberation',
-    'Roboto',
-  ];
-
-  /// Load system fonts into a fallback chain
+  /// Load system fonts into a fallback chain (IO-only helper).
   static Future<FontFallbackChain> loadSystemFonts({
     List<String>? preferredFonts,
     int maxFonts = 5,
-  }) async {
-    final chain = FontFallbackChain();
-    final platform = Platform.operatingSystem;
-    final searchPaths = _systemFontPaths[platform] ?? [];
-
-    final fontsToLoad = preferredFonts ?? _commonFonts;
-    int loaded = 0;
-
-    for (final fontName in fontsToLoad) {
-      if (loaded >= maxFonts) break;
-
-      for (final basePath in searchPaths) {
-        final expandedPath = basePath.replaceFirst(
-          '~',
-          Platform.environment['HOME'] ?? '',
-        );
-
-        // Try common extensions
-        for (final ext in ['.ttf', '.otf', '.TTF', '.OTF']) {
-          final fontPath = '$expandedPath$fontName$ext';
-          final file = File(fontPath);
-
-          if (await file.exists()) {
-            try {
-              await chain.addFontFromFile(fontPath);
-              loaded++;
-              logger.info('Loaded system font: $fontPath');
-              break;
-            } catch (e) {
-              // Continue searching
-            }
-          }
-        }
-
-        if (loaded >= maxFonts) break;
-      }
-    }
-
-    if (loaded == 0) {
-      logger.warning('No system fonts could be loaded');
-    }
-
-    return chain;
+    GraphicsFileSystem? filesystem,
+  }) {
+    return loadSystemFontsImpl(
+      preferredFonts: preferredFonts,
+      maxFonts: maxFonts,
+      filesystem: filesystem,
+    );
   }
 }

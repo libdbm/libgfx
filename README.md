@@ -58,11 +58,16 @@ See [data/fonts/README.md](data/fonts/README.md) for manual download instruction
 ### Basic Drawing
 
 ```dart
+import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
 
 void main() async {
-  // Create a 400x300 canvas
-  final engine = GraphicsEngine(400, 300);
+  // Create a 400x300 canvas and attach the default IO adapter
+  final engine = GraphicsEngine(
+    400,
+    300,
+    filesystem: const LocalGraphicsFileSystem(),
+  );
   
   // Set up styling
   engine.setFillColor(const Color(0xFFFF0000)); // Red
@@ -89,13 +94,18 @@ void main() async {
   
   // For other formats, use the codec system:
   final pngBytes = GraphicsEngine.saveImageToBytes(engine.canvas, 'png');
-  await File('output.png').writeAsBytes(pngBytes);
+  await engine.filesystem?.writeFile('output.png', pngBytes);
 }
 ```
 
 ## Text Rendering
 
 ```dart
+import 'package:libgfx/io/local_file_system.dart';
+
+// Ensure the engine has a file system before loading fonts
+engine.filesystem ??= const LocalGraphicsFileSystem();
+
 // Load a font
 await engine.setFontFromFile('fonts/Roboto-Regular.ttf');
 engine.setFontSize(24);

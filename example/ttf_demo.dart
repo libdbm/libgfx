@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
+import 'package:libgfx/src/io/file_system.dart';
 import 'package:libgfx/src/color/color.dart';
 import 'package:libgfx/src/fonts/ttf/ttf_font.dart';
 import 'package:libgfx/src/graphics_engine_facade.dart';
@@ -28,10 +30,15 @@ void main() async {
     print('  - ${file.path.split('/').last}');
   }
 
+  const filesystem = LocalGraphicsFileSystem();
+
   final fonts = <TTFFont>[];
   for (final fontFile in fontFiles) {
     try {
-      final font = await TTFFont.loadFromFile(fontFile.path);
+      final font = await TTFFont.loadFromFile(
+        fontFile.path,
+        filesystem: filesystem,
+      );
       fonts.add(font);
       print('Loaded: ${font.familyName} ${font.styleName}');
     } catch (e) {
@@ -45,17 +52,20 @@ void main() async {
   }
 
   // Create various demos
-  await createFontShowcaseDemo(fonts);
-  await createTypographyDemo(fonts);
-  await createSizesDemo(fonts);
-  await createMetricsDemo(fonts);
-  await createKerningDemo(fonts);
+  await createFontShowcaseDemo(fonts, filesystem);
+  await createTypographyDemo(fonts, filesystem);
+  await createSizesDemo(fonts, filesystem);
+  await createMetricsDemo(fonts, filesystem);
+  await createKerningDemo(fonts, filesystem);
 
   print('\nDemo images created successfully!');
 }
 
-Future<void> createFontShowcaseDemo(List<TTFFont> fonts) async {
-  final engine = GraphicsEngine(1200, 800);
+Future<void> createFontShowcaseDemo(
+  List<TTFFont> fonts,
+  GraphicsFileSystem filesystem,
+) async {
+  final engine = GraphicsEngine(1200, 800, filesystem: filesystem);
   engine.clear(const Color(0xFF2C3E50)); // Dark blue background
 
   // Title
@@ -119,10 +129,13 @@ Future<void> createFontShowcaseDemo(List<TTFFont> fonts) async {
   print('Created output/ttf_showcase.ppm');
 }
 
-Future<void> createTypographyDemo(List<TTFFont> fonts) async {
+Future<void> createTypographyDemo(
+  List<TTFFont> fonts,
+  GraphicsFileSystem filesystem,
+) async {
   if (fonts.isEmpty) return;
 
-  final engine = GraphicsEngine(800, 1000);
+  final engine = GraphicsEngine(800, 1000, filesystem: filesystem);
   engine.clear(const Color(0xFFF8F9FA)); // Light background
 
   final font = fonts.first;
@@ -229,10 +242,13 @@ Future<void> createTypographyDemo(List<TTFFont> fonts) async {
   print('Created output/ttf_typography.ppm');
 }
 
-Future<void> createSizesDemo(List<TTFFont> fonts) async {
+Future<void> createSizesDemo(
+  List<TTFFont> fonts,
+  GraphicsFileSystem filesystem,
+) async {
   if (fonts.isEmpty) return;
 
-  final engine = GraphicsEngine(1000, 600);
+  final engine = GraphicsEngine(1000, 600, filesystem: filesystem);
   engine.clear(const Color(0xFFFFFFFF));
 
   final font = fonts.first;
@@ -273,10 +289,13 @@ Future<void> createSizesDemo(List<TTFFont> fonts) async {
   print('Created output/ttf_sizes.ppm');
 }
 
-Future<void> createMetricsDemo(List<TTFFont> fonts) async {
+Future<void> createMetricsDemo(
+  List<TTFFont> fonts,
+  GraphicsFileSystem filesystem,
+) async {
   if (fonts.isEmpty) return;
 
-  final engine = GraphicsEngine(800, 600);
+  final engine = GraphicsEngine(800, 600, filesystem: filesystem);
   engine.clear(const Color(0xFFF5F5F5));
 
   final font = fonts.first;
@@ -397,10 +416,13 @@ Future<void> createMetricsDemo(List<TTFFont> fonts) async {
   print('Created output/ttf_metrics.ppm');
 }
 
-Future<void> createKerningDemo(List<TTFFont> fonts) async {
+Future<void> createKerningDemo(
+  List<TTFFont> fonts,
+  GraphicsFileSystem filesystem,
+) async {
   if (fonts.isEmpty) return;
 
-  final engine = GraphicsEngine(800, 500);
+  final engine = GraphicsEngine(800, 500, filesystem: filesystem);
   engine.clear(const Color(0xFFFFFFFF));
 
   final font = fonts.first;

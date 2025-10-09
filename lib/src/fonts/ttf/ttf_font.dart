@@ -1,13 +1,15 @@
-import 'dart:io';
 import 'dart:typed_data';
 
+import '../../errors.dart';
 import '../../matrix.dart';
 import '../../paths/path.dart';
 import '../../point.dart';
 import '../../text/text_types.dart' show TextMetrics;
 import '../font.dart';
+import '../font_error_messages.dart';
 import 'ttf_parser.dart';
 import 'ttf_tables.dart';
+import '../../io/file_system.dart';
 
 /// TrueType font implementation
 class TTFFont extends Font {
@@ -25,10 +27,15 @@ class TTFFont extends Font {
     _loadTables();
   }
 
-  /// Load a TrueType font from file
-  static Future<TTFFont> loadFromFile(String filePath) async {
-    final file = File(filePath);
-    final bytes = await file.readAsBytes();
+  /// Load a TrueType font from file using the injected [GraphicsFileSystem].
+  static Future<TTFFont> loadFromFile(
+    String path, {
+    required GraphicsFileSystem filesystem,
+  }) async {
+    final bytes = await filesystem.readFile(path);
+    if (bytes == null) {
+      throw FontException('${FontErrorMessages.fontFileNotFound}$path');
+    }
     return TTFFont.fromBytes(bytes);
   }
 

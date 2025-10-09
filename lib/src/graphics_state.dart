@@ -91,6 +91,8 @@ class GraphicsState {
   Matrix2D get transform => _transformState.transformation;
   set transform(Matrix2D value) => _transformState.transform(value);
 
+  Matrix2D get inverse => _transformState.inverse();
+
   // Clip properties
   Path? get clipPath => _clipState.clipPath;
   set clipPath(Path? value) {
@@ -144,7 +146,7 @@ class GraphicsState {
     return GraphicsState(
       transform: transform.clone(),
       clipPath: clipPath?.clone(),
-      clipRegion: clipRegion,
+      clipRegion: clipRegion?.clone(),
       fillPaint: fillPaint,
       strokePaint: strokePaint,
       blendMode: blendMode,

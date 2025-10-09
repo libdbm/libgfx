@@ -44,6 +44,24 @@ class ClipRegion {
     Matrix2D? transform,
   }) : transform = transform ?? Matrix2D.identity();
 
+  /// Create a deep copy of this clip region.
+  ClipRegion clone() {
+    final clonedSpans = <int, List<Span>>{};
+    for (final entry in spansByY.entries) {
+      clonedSpans[entry.key] = entry.value
+          .map((span) => Span(span.y, span.x, span.length, span.coverage))
+          .toList(growable: false);
+    }
+
+    return ClipRegion(
+      spansByY: clonedSpans,
+      bounds: Rectangle(bounds.left, bounds.top, bounds.width, bounds.height),
+      path: path?.clone(),
+      fillRule: fillRule,
+      transform: Matrix2D.copy(transform),
+    );
+  }
+
   /// Creates a clip region from a path
   factory ClipRegion.fromPath(
     Path path,

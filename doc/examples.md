@@ -2,19 +2,26 @@
 
 This document provides complete, runnable examples demonstrating various features of libgfx.
 
-## Note on File Formats
-
-The examples use `saveToFile()` which defaults to PPM format. To save in other formats (PNG, BMP), use:
+Important: File IO requires a configured GraphicsFileSystem. For VM/CLI usage, add this to your imports and engine construction in the examples below:
 
 ```dart
-// For PNG
-final pngBytes = GraphicsEngine.saveImageToBytes(engine.canvas, 'png');
-await File('output.png').writeAsBytes(pngBytes);
-
-// For BMP
-final bmpBytes = GraphicsEngine.saveImageToBytes(engine.canvas, 'bmp');
-await File('output.bmp').writeAsBytes(bmpBytes);
+import 'package:libgfx/io/local_file_system.dart';
+// ...
+final engine = GraphicsEngine(800, 600, filesystem: const LocalGraphicsFileSystem());
 ```
+
+On web, implement your own GraphicsFileSystem and pass it to the engine.
+
+## Note on File Formats and IO
+
+The examples call `engine.saveToFile(...)`. This method uses the configured GraphicsFileSystem and auto-detects the format from the file extension (png, bmp, p3, p6, ppm). For example:
+
+```dart
+await engine.saveToFile('output.png');
+await engine.saveToFile('output.bmp');
+```
+
+Note: You must configure a GraphicsFileSystem (e.g., LocalGraphicsFileSystem) for file operations. See the Getting Started guide.
 
 ## Basic Drawing Example
 
