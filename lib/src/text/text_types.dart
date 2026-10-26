@@ -1,4 +1,5 @@
 /// Common text rendering types and enums.
+library;
 
 /// Text rendering operations
 enum TextOperation { fill, stroke, clip, fillAndStroke }

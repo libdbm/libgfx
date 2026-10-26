@@ -86,15 +86,17 @@ class Stroker {
 
   Point? _previous(List<Point> points, int index, final bool closed) {
     if (index > 0) return points[index - 1];
-    if (closed && points.length > 2)
+    if (closed && points.length > 2) {
       return points[points.length - 2]; // Skip duplicate last point
+    }
     return null;
   }
 
   Point? _next(List<Point> points, int index, final bool closed) {
     if (index < points.length - 1) return points[index + 1];
-    if (closed && points.length > 2)
+    if (closed && points.length > 2) {
       return points[1]; // Skip duplicate first point
+    }
     return null;
   }
 

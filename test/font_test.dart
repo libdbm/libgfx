@@ -2,11 +2,11 @@ import 'dart:typed_data';
 
 import 'package:test/test.dart';
 
-import '../lib/src/fonts/font.dart';
-import '../lib/src/fonts/font_fallback.dart';
-import '../lib/src/fonts/ttf/ttf_font.dart';
-import '../lib/src/result.dart';
-import '../lib/src/text/text_types.dart'
+import 'package:libgfx/src/fonts/font.dart';
+import 'package:libgfx/src/fonts/font_fallback.dart';
+import 'package:libgfx/src/fonts/ttf/ttf_font.dart';
+import 'package:libgfx/src/result.dart';
+import 'package:libgfx/src/text/text_types.dart'
     show TextAlign, TextBaseline, TextMetrics;
 
 void main() {

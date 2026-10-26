@@ -42,8 +42,7 @@
 ## 2.0.0
 
 Rendering correctness, hardened parsing of untrusted fonts and images, a complete pure-Dart PNG decoder, and
-documentation that matches the API. `doc/rendering-model.md` states the rendering rules this release follows, with the
-tests that pin them.
+documentation that matches the API. 
 
 ### Breaking changes
 
@@ -275,3 +274,7 @@ Each change is followed by how to migrate.
   is unchanged.
 - Internal `save()`/`restore()` pairs are exception safe.
 - The README and the guides in `doc/` match the API; their code blocks are compiled by the test suite.
+
+## 2.0.1
+
+- pub.dev formatting cleanup.

@@ -91,7 +91,9 @@ PPMHeader parsePPMHeader(Uint8List bytes) {
   int offset = 0;
 
   // Skip P6
-  while (bytes[offset] != 0x0A) offset++; // Skip to newline
+  while (bytes[offset] != 0x0A) {
+    offset++; // Skip to newline
+  }
   offset++;
 
   // Read width
@@ -105,8 +107,9 @@ PPMHeader parsePPMHeader(Uint8List bytes) {
   // Skip whitespace
   while (bytes[offset] == 0x20 ||
       bytes[offset] == 0x0A ||
-      bytes[offset] == 0x0D)
+      bytes[offset] == 0x0D) {
     offset++;
+  }
 
   // Read height
   String heightStr = '';
@@ -117,7 +120,9 @@ PPMHeader parsePPMHeader(Uint8List bytes) {
   final height = int.parse(heightStr);
 
   // Skip to 255 and newline
-  while (bytes[offset] != 0x0A) offset++;
+  while (bytes[offset] != 0x0A) {
+    offset++;
+  }
   offset++;
 
   return PPMHeader(width, height, offset);
