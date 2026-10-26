@@ -6,18 +6,19 @@ abstract class LibgfxLogger {
 
   void warning(String message);
 
-  void error(String message, [Object? error, StackTrace? stackTrace]);
+  void error(String message, [Object? error, final StackTrace? trace]);
 }
 
 /// Default console logger implementation
 class ConsoleLogger implements LibgfxLogger {
-  final bool enableDebug;
+  /// Whether debug messages and stack traces are printed
+  final bool verbose;
 
-  const ConsoleLogger({this.enableDebug = false});
+  const ConsoleLogger({this.verbose = false});
 
   @override
   void debug(String message) {
-    if (enableDebug) {
+    if (verbose) {
       print('[DEBUG] $message');
     }
   }
@@ -33,13 +34,13 @@ class ConsoleLogger implements LibgfxLogger {
   }
 
   @override
-  void error(String message, [Object? error, StackTrace? stackTrace]) {
+  void error(String message, [Object? error, final StackTrace? trace]) {
     print('[ERROR] $message');
     if (error != null) {
       print('  Error: $error');
     }
-    if (stackTrace != null && enableDebug) {
-      print('  Stack trace:\n$stackTrace');
+    if (trace != null && verbose) {
+      print('  Stack trace:\n$trace');
     }
   }
 }
@@ -58,21 +59,13 @@ class SilentLogger implements LibgfxLogger {
   void warning(String message) {}
 
   @override
-  void error(String message, [Object? error, StackTrace? stackTrace]) {}
+  void error(String message, [Object? error, final StackTrace? trace]) {}
 }
 
 /// Global logger instance
 LibgfxLogger _logger = const SilentLogger();
 
-/// Get the current logger
+/// The logger libgfx reports to; [SilentLogger] by default. Assign
+/// `ConsoleLogger()` to print messages.
 LibgfxLogger get logger => _logger;
-
-/// Set a custom logger
-void setLogger(LibgfxLogger newLogger) {
-  _logger = newLogger;
-}
-
-/// Enable console logging
-void enableConsoleLogging({bool debug = false}) {
-  _logger = ConsoleLogger(enableDebug: debug);
-}
+set logger(final LibgfxLogger value) => _logger = value;

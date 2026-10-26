@@ -6,7 +6,10 @@ import 'package:libgfx/libgfx.dart';
 void main() async {
   // Create graphics engine
   const filesystem = LocalGraphicsFileSystem();
-  final engine = GraphicsEngine(1200, 800, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+  // page units
+  final engine = GraphicsEngine(2 * 1200, 2 * 800, filesystem: filesystem)
+    ..scale(2, 2);
   engine.clear(const Color(0xFFF5F5F5));
 
   // Demo 1: Advanced Clipping with Fill Rules
@@ -22,7 +25,7 @@ void main() async {
   demonstrateCurveQuality(engine, 450, 350);
 
   // Save result
-  await engine.saveToFile('output/quality_demo.ppm');
+  await engine.write('output/quality_demo.ppm');
   print('Saved output/quality_demo.ppm');
 }
 
@@ -31,7 +34,7 @@ void demonstrateClipping(GraphicsEngine engine, double x, double y) {
   engine.translate(x, y);
 
   // Title
-  engine.setFillColor(const Color(0xFF333333));
+  engine.fillStyle = const Color(0xFF333333);
 
   // Create a star path for clipping
   final starPath = createStarPath(100, 100, 40, 20, 5);
@@ -52,14 +55,14 @@ void demonstrateClipping(GraphicsEngine engine, double x, double y) {
       ColorStop(1.0, const Color(0xFF45B7D1)),
     ],
   );
-  engine.setFillPaint(gradient);
+  engine.fillStyle = gradient;
 
   final rectPath = PathBuilder()
       .moveTo(50, 50)
       .lineTo(150, 50)
       .lineTo(150, 150)
       .lineTo(50, 150)
-      .close()
+      .closePath()
       .build();
   engine.fill(rectPath);
 
@@ -75,20 +78,21 @@ void demonstrateClipping(GraphicsEngine engine, double x, double y) {
       .lineTo(120, 30)
       .lineTo(120, 120)
       .lineTo(30, 120)
-      .close()
+      .closePath()
       .moveTo(60, 60)
       .lineTo(150, 60)
       .lineTo(150, 150)
       .lineTo(60, 150)
-      .close()
+      .closePath()
       .build();
 
   engine.clip(overlappingPath);
 
   // Draw pattern through clip
   final patternBitmap = createCheckerPattern(20, 20);
-  engine.setFillPaint(
-    PatternPaint(pattern: patternBitmap, repeat: PatternRepeat.repeat),
+  engine.fillStyle = PatternPaint(
+    pattern: patternBitmap,
+    repeat: PatternRepeat.repeat,
   );
   engine.fill(rectPath);
 
@@ -100,7 +104,7 @@ void demonstrateClipping(GraphicsEngine engine, double x, double y) {
 
   // Draw path and show hit test points
   final testPath = createHeartPath(50, 50, 40);
-  engine.setFillColor(const Color(0xFFFF69B4));
+  engine.fillStyle = const Color(0xFFFF69B4);
   engine.fill(testPath);
 
   // Show hit test results
@@ -114,9 +118,9 @@ void demonstrateClipping(GraphicsEngine engine, double x, double y) {
       final dy = (py - 50).abs();
       final hit = dx < 30 && dy < 35;
 
-      engine.setFillColor(
-        hit ? const Color(0xFF00FF00) : const Color(0xFFFF0000),
-      );
+      engine.fillStyle = hit
+          ? const Color(0xFF00FF00)
+          : const Color(0xFFFF0000);
 
       final dotPath = PathBuilder()
           .arc(px.toDouble(), py.toDouble(), 1, 0, 2 * math.pi)
@@ -170,13 +174,13 @@ void demonstrateColorProfiles(GraphicsEngine engine, double x, double y) {
       255,
     );
 
-    engine.setFillColor(rgbInterp);
+    engine.fillStyle = rgbInterp;
     final rectPath = PathBuilder()
         .moveTo(i.toDouble(), 0)
         .lineTo(i + 1.0, 0)
         .lineTo(i + 1.0, 30)
         .lineTo(i.toDouble(), 30)
-        .close()
+        .closePath()
         .build();
     engine.fill(rectPath);
   }
@@ -194,31 +198,37 @@ Future<void> demonstrateSubPixelText(
   engine.translate(x, y);
 
   // Load font
-  await engine.setFontFromFile('data/fonts/NotoSans-Regular.ttf');
+  const font = 'data/fonts/NotoSans-Regular.ttf';
+  if (await engine.loadFont(font) case Err(:final error)) {
+    print('Failed to load $font: $error');
+    print('Run ./scripts/download_fonts.sh to download the fonts');
+    engine.restore();
+    return;
+  }
 
   // Standard rendering
-  engine.setFillColor(const Color(0xFF000000));
-  engine.setFontSize(16);
+  engine.fillStyle = const Color(0xFF000000);
+  engine.fontSize = 16;
   engine.fillText("Standard Anti-aliasing", 0, 20);
 
   // Note: SubPixelTextRenderer would need to be exposed in public API
   // The text rendering improvements are already integrated into the engine
 
-  engine.setFontSize(12);
+  engine.fontSize = 12;
   engine.fillText(
     "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
     0,
     50,
   );
 
-  engine.setFontSize(10);
+  engine.fontSize = 10;
   engine.fillText(
     "The quick brown fox jumps over the lazy dog. 0123456789",
     0,
     70,
   );
 
-  engine.setFontSize(8);
+  engine.fontSize = 8;
   engine.fillText(
     "Small text benefits most from sub-pixel rendering quality improvements.",
     0,
@@ -230,7 +240,7 @@ Future<void> demonstrateSubPixelText(
   double yOffset = 120;
 
   for (final size in sizes) {
-    engine.setFontSize(size.toDouble());
+    engine.fontSize = size.toDouble();
     engine.fillText("Quality @ ${size}px: Hamburgefonstiv", 0, yOffset);
     yOffset += size + 5;
   }
@@ -245,14 +255,14 @@ void demonstrateCurveQuality(GraphicsEngine engine, double x, double y) {
   // Create a complex curve
   final curvePath = PathBuilder()
       .moveTo(0, 100)
-      .cubicCurveTo(50, 0, 150, 200, 200, 100)
-      .cubicCurveTo(250, 0, 350, 200, 400, 100)
+      .bezierCurveTo(50, 0, 150, 200, 200, 100)
+      .bezierCurveTo(250, 0, 350, 200, 400, 100)
       .build();
 
   // Draw with standard quality
   engine.save();
-  engine.setStrokeColor(const Color(0xFF888888));
-  engine.setLineWidth(1);
+  engine.strokeStyle = const Color(0xFF888888);
+  engine.lineWidth = 1;
   engine.stroke(curvePath);
   engine.restore();
 
@@ -266,15 +276,15 @@ void demonstrateCurveQuality(GraphicsEngine engine, double x, double y) {
 
   final flatPath = PathBuilder()
       .moveTo(0, 100)
-      .cubicCurveTo(50, 0, 150, 200, 200, 100)
+      .bezierCurveTo(50, 0, 150, 200, 200, 100)
       .build();
 
-  engine.setStrokeColor(const Color(0xFF4CAF50));
-  engine.setLineWidth(2);
+  engine.strokeStyle = const Color(0xFF4CAF50);
+  engine.lineWidth = 2;
   engine.stroke(flatPath);
 
   // Show some sample points along the curve
-  engine.setFillColor(const Color(0xFFFF5722));
+  engine.fillStyle = const Color(0xFFFF5722);
   for (int i = 0; i <= 10; i++) {
     final t = i / 10.0;
     // Approximate points on cubic bezier
@@ -295,8 +305,8 @@ void demonstrateCurveQuality(GraphicsEngine engine, double x, double y) {
       .ellipse(50, 50, 40, 25, math.pi / 4, 0, 2 * math.pi)
       .build();
 
-  engine.setStrokeColor(const Color(0xFF2196F3));
-  engine.setLineWidth(2);
+  engine.strokeStyle = const Color(0xFF2196F3);
+  engine.lineWidth = 2;
   engine.stroke(ellipsePath);
 
   engine.restore();
@@ -330,7 +340,7 @@ Path createStarPath(
     builder.lineTo(innerX, innerY);
   }
 
-  builder.close();
+  builder.closePath();
   return builder.build();
 }
 
@@ -338,7 +348,7 @@ Path createHeartPath(double cx, double cy, double size) {
   final builder = PathBuilder();
 
   builder.moveTo(cx, cy + size * 0.3);
-  builder.cubicCurveTo(
+  builder.bezierCurveTo(
     cx - size * 0.5,
     cy - size * 0.3,
     cx - size,
@@ -346,7 +356,7 @@ Path createHeartPath(double cx, double cy, double size) {
     cx - size,
     cy + size * 0.4,
   );
-  builder.cubicCurveTo(
+  builder.bezierCurveTo(
     cx - size,
     cy + size * 0.8,
     cx - size * 0.5,
@@ -354,7 +364,7 @@ Path createHeartPath(double cx, double cy, double size) {
     cx,
     cy + size * 0.7,
   );
-  builder.cubicCurveTo(
+  builder.bezierCurveTo(
     cx + size * 0.5,
     cy + size,
     cx + size,
@@ -362,7 +372,7 @@ Path createHeartPath(double cx, double cy, double size) {
     cx + size,
     cy + size * 0.4,
   );
-  builder.cubicCurveTo(
+  builder.bezierCurveTo(
     cx + size,
     cy + size * 0.1,
     cx + size * 0.5,
@@ -371,7 +381,7 @@ Path createHeartPath(double cx, double cy, double size) {
     cy + size * 0.3,
   );
 
-  builder.close();
+  builder.closePath();
   return builder.build();
 }
 
@@ -381,7 +391,7 @@ Bitmap createCheckerPattern(int width, int height) {
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
       final isEven = ((x ~/ 5) + (y ~/ 5)) % 2 == 0;
-      pattern.setPixel(x, y, Color(isEven ? 0xFF333333 : 0xFFCCCCCC));
+      pattern.plot(x, y, Color(isEven ? 0xFF333333 : 0xFFCCCCCC));
     }
   }
 
@@ -399,19 +409,19 @@ void drawColorSwatch(
   engine.translate(x, y);
 
   // Draw swatch
-  engine.setFillColor(color);
+  engine.fillStyle = color;
   final swatchPath = PathBuilder()
       .moveTo(0, 0)
       .lineTo(80, 0)
       .lineTo(80, 60)
       .lineTo(0, 60)
-      .close()
+      .closePath()
       .build();
   engine.fill(swatchPath);
 
   // Draw border
-  engine.setStrokeColor(const Color(0xFF666666));
-  engine.setLineWidth(1);
+  engine.strokeStyle = const Color(0xFF666666);
+  engine.lineWidth = 1;
   engine.stroke(swatchPath);
 
   engine.restore();

@@ -76,25 +76,25 @@ class BlendModes {
   static Color srcOver(Color source, Color destination) {
     final sa = source.alpha;
     if (sa == 0) return destination;
-    if (sa == 255 && destination.alpha == 0) return source;
+    if (sa == 255) return source;
 
     final da = destination.alpha;
-    final invSa = 255 - sa;
+    final inverseSa = 255 - sa;
 
-    // outA = sa + da * (1 - sa)
-    final outA = sa + MathUtils.mul255(da, invSa);
-    if (outA == 0) return const Color(0x00000000);
+    // alpha = sa + da * (1 - sa)
+    final alpha = sa + MathUtils.mul255(da, inverseSa);
+    if (alpha == 0) return const Color(0x00000000);
 
     // Premultiply colors
     final src = ColorUtils.premultiply(source);
     final dst = ColorUtils.premultiply(destination);
 
     // Composite: src + dst * (1 - sa)
-    final outR = src.r + MathUtils.mul255(dst.r, invSa);
-    final outG = src.g + MathUtils.mul255(dst.g, invSa);
-    final outB = src.b + MathUtils.mul255(dst.b, invSa);
+    final red = src.r + MathUtils.mul255(dst.r, inverseSa);
+    final green = src.g + MathUtils.mul255(dst.g, inverseSa);
+    final blue = src.b + MathUtils.mul255(dst.b, inverseSa);
 
-    return ColorUtils.unpremultiplyRGBA(outR, outG, outB, outA);
+    return ColorUtils.unpremultiply(red, green, blue, alpha);
   }
 
   static Color dstOver(Color source, Color destination) {
@@ -103,33 +103,33 @@ class BlendModes {
     if (da == 0) return source;
 
     final sa = source.alpha;
-    final invDa = 255 - da;
+    final inverseDa = 255 - da;
 
-    // outA = da + sa * (1 - da)
-    final outA = da + MathUtils.mul255(sa, invDa);
-    if (outA == 0) return const Color(0x00000000);
+    // alpha = da + sa * (1 - da)
+    final alpha = da + MathUtils.mul255(sa, inverseDa);
+    if (alpha == 0) return const Color(0x00000000);
 
     // Premultiply colors
     final src = ColorUtils.premultiply(source);
     final dst = ColorUtils.premultiply(destination);
 
     // Composite: dst + src * (1 - da)
-    final outR = dst.r + MathUtils.mul255(src.r, invDa);
-    final outG = dst.g + MathUtils.mul255(src.g, invDa);
-    final outB = dst.b + MathUtils.mul255(src.b, invDa);
+    final red = dst.r + MathUtils.mul255(src.r, inverseDa);
+    final green = dst.g + MathUtils.mul255(src.g, inverseDa);
+    final blue = dst.b + MathUtils.mul255(src.b, inverseDa);
 
-    return ColorUtils.unpremultiplyRGBA(outR, outG, outB, outA);
+    return ColorUtils.unpremultiply(red, green, blue, alpha);
   }
 
   static Color srcIn(Color source, Color destination) {
-    final outA = MathUtils.mul255(source.alpha, destination.alpha);
-    return Color.fromARGB(outA, source.red, source.green, source.blue);
+    final alpha = MathUtils.mul255(source.alpha, destination.alpha);
+    return Color.fromARGB(alpha, source.red, source.green, source.blue);
   }
 
   static Color dstIn(Color source, Color destination) {
-    final outA = MathUtils.mul255(destination.alpha, source.alpha);
+    final alpha = MathUtils.mul255(destination.alpha, source.alpha);
     return Color.fromARGB(
-      outA,
+      alpha,
       destination.red,
       destination.green,
       destination.blue,
@@ -137,14 +137,14 @@ class BlendModes {
   }
 
   static Color srcOut(Color source, Color destination) {
-    final outA = MathUtils.mul255(source.alpha, 255 - destination.alpha);
-    return Color.fromARGB(outA, source.red, source.green, source.blue);
+    final alpha = MathUtils.mul255(source.alpha, 255 - destination.alpha);
+    return Color.fromARGB(alpha, source.red, source.green, source.blue);
   }
 
   static Color dstOut(Color source, Color destination) {
-    final outA = MathUtils.mul255(destination.alpha, 255 - source.alpha);
+    final alpha = MathUtils.mul255(destination.alpha, 255 - source.alpha);
     return Color.fromARGB(
-      outA,
+      alpha,
       destination.red,
       destination.green,
       destination.blue,
@@ -157,11 +157,11 @@ class BlendModes {
 
     if (da == 0) return const Color(0x00000000);
 
-    final outR = _interpolate(destination.red, source.red, sa);
-    final outG = _interpolate(destination.green, source.green, sa);
-    final outB = _interpolate(destination.blue, source.blue, sa);
+    final red = _interpolate(destination.red, source.red, sa);
+    final green = _interpolate(destination.green, source.green, sa);
+    final blue = _interpolate(destination.blue, source.blue, sa);
 
-    return Color.fromARGB(da, outR, outG, outB);
+    return Color.fromARGB(da, red, green, blue);
   }
 
   static Color dstAtop(Color source, Color destination) {
@@ -170,43 +170,44 @@ class BlendModes {
 
     if (sa == 0) return const Color(0x00000000);
 
-    final outR = _interpolate(source.red, destination.red, da);
-    final outG = _interpolate(source.green, destination.green, da);
-    final outB = _interpolate(source.blue, destination.blue, da);
+    final red = _interpolate(source.red, destination.red, da);
+    final green = _interpolate(source.green, destination.green, da);
+    final blue = _interpolate(source.blue, destination.blue, da);
 
-    return Color.fromARGB(sa, outR, outG, outB);
+    return Color.fromARGB(sa, red, green, blue);
   }
 
   static Color xorMode(Color source, Color destination) {
     final sa = source.alpha;
     final da = destination.alpha;
-    final invSa = 255 - sa;
-    final invDa = 255 - da;
+    final inverseSa = 255 - sa;
+    final inverseDa = 255 - da;
 
-    // outA = sa * (1 - da) + da * (1 - sa)
-    final outA = MathUtils.mul255(sa, invDa) + MathUtils.mul255(da, invSa);
-    if (outA == 0) return const Color(0x00000000);
+    // alpha = sa * (1 - da) + da * (1 - sa)
+    final alpha =
+        MathUtils.mul255(sa, inverseDa) + MathUtils.mul255(da, inverseSa);
+    if (alpha == 0) return const Color(0x00000000);
 
     // Premultiply colors
     final src = ColorUtils.premultiply(source);
     final dst = ColorUtils.premultiply(destination);
 
     // Composite: src * (1 - da) + dst * (1 - sa)
-    final outR =
-        MathUtils.mul255(src.r, invDa) + MathUtils.mul255(dst.r, invSa);
-    final outG =
-        MathUtils.mul255(src.g, invDa) + MathUtils.mul255(dst.g, invSa);
-    final outB =
-        MathUtils.mul255(src.b, invDa) + MathUtils.mul255(dst.b, invSa);
+    final red =
+        MathUtils.mul255(src.r, inverseDa) + MathUtils.mul255(dst.r, inverseSa);
+    final green =
+        MathUtils.mul255(src.g, inverseDa) + MathUtils.mul255(dst.g, inverseSa);
+    final blue =
+        MathUtils.mul255(src.b, inverseDa) + MathUtils.mul255(dst.b, inverseSa);
 
-    return ColorUtils.unpremultiplyRGBA(outR, outG, outB, outA);
+    return ColorUtils.unpremultiply(red, green, blue, alpha);
   }
 
   /// Generic separable blend mode application
   static Color applySeparableBlend(
     Color source,
     Color destination,
-    int Function(int, int) blendFunc,
+    final int Function(int, int) operation,
   ) {
     final sa = source.alpha;
     final da = destination.alpha;
@@ -215,62 +216,55 @@ class BlendModes {
     if (da == 0) return source;
 
     // Calculate output alpha
-    final invSa = 255 - sa;
-    final outA = sa + MathUtils.mul255(da, invSa);
+    final inverseSa = 255 - sa;
+    final alpha = sa + MathUtils.mul255(da, inverseSa);
 
-    if (outA == 0) return const Color(0x00000000);
+    if (alpha == 0) return const Color(0x00000000);
 
-    final outR = _blendChannel(
-      source.red,
-      destination.red,
-      sa,
-      da,
-      outA,
-      blendFunc,
-    );
-    final outG = _blendChannel(
+    final red = _channel(source.red, destination.red, sa, da, alpha, operation);
+    final green = _channel(
       source.green,
       destination.green,
       sa,
       da,
-      outA,
-      blendFunc,
+      alpha,
+      operation,
     );
-    final outB = _blendChannel(
+    final blue = _channel(
       source.blue,
       destination.blue,
       sa,
       da,
-      outA,
-      blendFunc,
+      alpha,
+      operation,
     );
 
-    return Color.fromARGB(outA, outR, outG, outB);
+    return Color.fromARGB(alpha, red, green, blue);
   }
 
-  static int _blendChannel(
+  static int _channel(
     int sc,
     int dc,
     int sa,
     int da,
-    int outA,
-    int Function(int, int) blendFunc,
+    final int alpha,
+    final int Function(int, int) operation,
   ) {
-    final invSa = 255 - sa;
-    final invDa = 255 - da;
+    final inverseSa = 255 - sa;
+    final inverseDa = 255 - da;
 
     // Apply blend function
-    final blended = blendFunc(sc, dc);
+    final blended = operation(sc, dc);
 
     // Composite with alpha
     final result =
         MathUtils.mul255(MathUtils.mul255(blended, sa), da) +
-        MathUtils.mul255(MathUtils.mul255(sc, sa), invDa) +
-        MathUtils.mul255(MathUtils.mul255(dc, da), invSa);
+        MathUtils.mul255(MathUtils.mul255(sc, sa), inverseDa) +
+        MathUtils.mul255(MathUtils.mul255(dc, da), inverseSa);
 
     // Unpremultiply
-    final invOutA = (255 * 255) ~/ outA;
-    return ((result * invOutA + 127) >> 8).clamp(0, 255);
+    final inverse = (255 * 255) ~/ alpha;
+    return ((result * inverse + 127) >> 8).clamp(0, 255);
   }
 
   static int multiplyFunc(int s, int d) => MathUtils.mul255(s, d);
@@ -294,15 +288,21 @@ class BlendModes {
     }
   }
 
+  /// Soft light as defined by W3C Compositing and Blending Level 1, computed
+  /// on normalized channels.
   static int softLightFunc(int s, int d) {
-    if (s < 128) {
-      return d - MathUtils.mul255(MathUtils.mul255(255 - (s << 1), d), 255 - d);
+    final source = s / 255;
+    final backdrop = d / 255;
+    final double result;
+    if (source <= 0.5) {
+      result = backdrop - (1 - 2 * source) * backdrop * (1 - backdrop);
     } else {
-      final m = d < 64
-          ? MathUtils.mul255(d, ((d << 4) - 12 * 255 + 3072) ~/ 255)
-          : math.sqrt(d / 255).toInt();
-      return d + MathUtils.mul255((s << 1) - 255, m - d);
+      final lift = backdrop <= 0.25
+          ? ((16 * backdrop - 12) * backdrop + 4) * backdrop
+          : math.sqrt(backdrop);
+      result = backdrop + (2 * source - 1) * (lift - backdrop);
     }
+    return (result * 255).round().clamp(0, 255);
   }
 
   static int colorDodgeFunc(int s, int d) {
@@ -372,16 +372,16 @@ class BlendModes {
   static Color add(Color source, Color destination) {
     final sa = source.alpha;
     final da = destination.alpha;
-    final invSa = 255 - sa;
+    final inverseSa = 255 - sa;
 
-    final outA = math.min(255, sa + MathUtils.mul255(da, invSa));
+    final alpha = math.min(255, sa + MathUtils.mul255(da, inverseSa));
 
-    if (outA == 0) return const Color(0x00000000);
+    if (alpha == 0) return const Color(0x00000000);
 
-    final outR = math.min(255, source.red + destination.red);
-    final outG = math.min(255, source.green + destination.green);
-    final outB = math.min(255, source.blue + destination.blue);
+    final red = math.min(255, source.red + destination.red);
+    final green = math.min(255, source.green + destination.green);
+    final blue = math.min(255, source.blue + destination.blue);
 
-    return Color.fromARGB(outA, outR, outG, outB);
+    return Color.fromARGB(alpha, red, green, blue);
   }
 }

@@ -16,10 +16,12 @@ pubspec.lock
 output/
 *.ppm
 *.png
+!test/fixtures/png/*.png
 *.jpg
 
 # Font files
 *.ttf
+!test/fixtures/fonts/*.ttf
 *.otf
 
 # Test coverage

@@ -1,9 +1,20 @@
 # Advanced Features
 
 This guide covers the advanced features of libgfx including gradients, patterns, filters, clipping, path operations, and
-more.
+more. For the rules on coordinates, coverage and fill rules, see the [Rendering Model](rendering-model.md).
 
 ## Gradients
+
+Gradients are immutable. Their constructors take a list of `ColorStop`s, and `addColorStop(offset, color)` returns a
+new gradient (W3C canvas changes the gradient in place). The engine factories `createLinearGradient`, `createRadialGradient` and
+`createConicGradient` return gradients with no stops, so add stops to the result:
+
+```dart
+final fade = engine
+    .createLinearGradient(0, 0, 200, 0)
+    .addColorStop(0.0, const Color(0xFFFF0000))
+    .addColorStop(1.0, const Color(0xFF0000FF));
+```
 
 ### Linear Gradients
 
@@ -14,16 +25,15 @@ import 'package:libgfx/libgfx.dart';
 
 // Basic linear gradient
 final gradient = LinearGradient(
-  start: Point(0, 0),
-  end: Point(200, 0),
-  colors: [
-    const Color(0xFFFF0000),  // Red
-    const Color(0xFF0000FF),  // Blue
+  start: const Point(0, 0),
+  end: const Point(200, 0),
+  stops: [
+    ColorStop(0.0, const Color(0xFFFF0000)),  // Red
+    ColorStop(1.0, const Color(0xFF0000FF)),  // Blue
   ],
-  stops: [0.0, 1.0],
 );
 
-engine.setFillPaint(gradient);
+engine.fillStyle = gradient;
 engine.fillRect(0, 0, 200, 100);
 ```
 
@@ -31,46 +41,50 @@ engine.fillRect(0, 0, 200, 100);
 
 ```dart
 final rainbow = LinearGradient(
-  start: Point(0, 0),
-  end: Point(300, 0),
-  colors: [
-    const Color(0xFFFF0000),  // Red
-    const Color(0xFFFF7F00),  // Orange
-    const Color(0xFFFFFF00),  // Yellow
-    const Color(0xFF00FF00),  // Green
-    const Color(0xFF0000FF),  // Blue
-    const Color(0xFF4B0082),  // Indigo
-    const Color(0xFF9400D3),  // Violet
+  start: const Point(0, 0),
+  end: const Point(300, 0),
+  stops: [
+    ColorStop(0.0, const Color(0xFFFF0000)),   // Red
+    ColorStop(0.17, const Color(0xFFFF7F00)),  // Orange
+    ColorStop(0.33, const Color(0xFFFFFF00)),  // Yellow
+    ColorStop(0.5, const Color(0xFF00FF00)),   // Green
+    ColorStop(0.67, const Color(0xFF0000FF)),  // Blue
+    ColorStop(0.83, const Color(0xFF4B0082)),  // Indigo
+    ColorStop(1.0, const Color(0xFF9400D3)),   // Violet
   ],
-  stops: [0.0, 0.17, 0.33, 0.5, 0.67, 0.83, 1.0],
 );
 ```
 
 #### Spread Modes
 
 ```dart
+final stops = [
+  ColorStop(0.0, const Color(0xFFFF0000)),
+  ColorStop(1.0, const Color(0xFF0000FF)),
+];
+
 // Pad - extend edge colors (default)
 final padGradient = LinearGradient(
-  start: Point(50, 0),
-  end: Point(150, 0),
-  colors: [const Color(0xFFFF0000), const Color(0xFF0000FF)],
-  spreadMode: SpreadMode.pad,
+  start: const Point(50, 0),
+  end: const Point(150, 0),
+  stops: stops,
+  spread: GradientSpread.pad,
 );
 
 // Repeat - repeat the gradient
 final repeatGradient = LinearGradient(
-  start: Point(0, 0),
-  end: Point(50, 0),
-  colors: [const Color(0xFFFF0000), const Color(0xFF0000FF)],
-  spreadMode: SpreadMode.repeat,
+  start: const Point(0, 0),
+  end: const Point(50, 0),
+  stops: stops,
+  spread: GradientSpread.repeat,
 );
 
 // Reflect - mirror the gradient
 final reflectGradient = LinearGradient(
-  start: Point(0, 0),
-  end: Point(50, 0),
-  colors: [const Color(0xFFFF0000), const Color(0xFF0000FF)],
-  spreadMode: SpreadMode.reflect,
+  start: const Point(0, 0),
+  end: const Point(50, 0),
+  stops: stops,
+  spread: GradientSpread.reflect,
 );
 ```
 
@@ -81,16 +95,16 @@ Radial gradients create circular color transitions.
 ```dart
 // Basic radial gradient
 final radial = RadialGradient(
-  center: Point(100, 100),
+  center: const Point(100, 100),
   radius: 50,
-  colors: [
-    const Color(0xFFFFFFFF),
-    const Color(0xFF000000),
+  stops: [
+    ColorStop(0.0, const Color(0xFFFFFFFF)),
+    ColorStop(1.0, const Color(0xFF000000)),
   ],
 );
 
-engine.setFillPaint(radial);
-engine.fillCircle(100, 100, 80);
+engine.fillStyle = radial;
+engine.fill(PathBuilder().circle(100, 100, 80).build());
 ```
 
 #### Focal Point Radial Gradients
@@ -98,59 +112,64 @@ engine.fillCircle(100, 100, 80);
 ```dart
 // Off-center focal point for 3D effect
 final focalRadial = RadialGradient(
-  center: Point(100, 100),
+  center: const Point(100, 100),
   radius: 50,
-  focal: Point(85, 85),  // Offset focal point
-  colors: [
-    const Color(0xFFFFFFFF),
-    const Color(0xFF2196F3),
-    const Color(0xFF0D47A1),
+  focal: const Point(85, 85),  // Offset focal point
+  stops: [
+    ColorStop(0.0, const Color(0xFFFFFFFF)),
+    ColorStop(0.7, const Color(0xFF2196F3)),
+    ColorStop(1.0, const Color(0xFF0D47A1)),
   ],
-  stops: [0.0, 0.7, 1.0],
 );
 ```
 
 ### Conic Gradients
 
-Conic (angular) gradients sweep around a center point.
+Conic (angular) gradients sweep around a center point. The class is `ConicalGradient`.
 
 ```dart
 // Color wheel
-final conic = ConicGradient(
-  center: Point(100, 100),
+final conic = ConicalGradient(
+  center: const Point(100, 100),
   startAngle: 0,
-  colors: [
-    const Color(0xFFFF0000),
-    const Color(0xFFFFFF00),
-    const Color(0xFF00FF00),
-    const Color(0xFF00FFFF),
-    const Color(0xFF0000FF),
-    const Color(0xFFFF00FF),
-    const Color(0xFFFF0000),
+  stops: [
+    ColorStop(0.0, const Color(0xFFFF0000)),
+    ColorStop(0.17, const Color(0xFFFFFF00)),
+    ColorStop(0.33, const Color(0xFF00FF00)),
+    ColorStop(0.5, const Color(0xFF00FFFF)),
+    ColorStop(0.67, const Color(0xFF0000FF)),
+    ColorStop(0.83, const Color(0xFFFF00FF)),
+    ColorStop(1.0, const Color(0xFFFF0000)),
   ],
-  stops: [0.0, 0.17, 0.33, 0.5, 0.67, 0.83, 1.0],
 );
 
-engine.setFillPaint(conic);
-engine.fillCircle(100, 100, 80);
+engine.fillStyle = conic;
+engine.fill(PathBuilder().circle(100, 100, 80).build());
 ```
 
 ## Pattern Fills
 
 ### Basic Patterns
 
+`PatternPaint` copies its bitmap and transform, so later changes to either do not affect the paint.
+
 ```dart
+import 'dart:io';
+
 // Load pattern image
-final patternImage = await Bitmap.fromFile('pattern.png');
+final bytes = await File('pattern.png').readAsBytes();
+final patternImage = switch (GraphicsEngine.decode(bytes)) {
+  Ok(:final value) => value,
+  Err(:final error) => throw StateError(error.message),
+};
 
 // Create pattern paint
 final pattern = PatternPaint(
-  bitmap: patternImage,
-  repeatX: RepeatMode.repeat,
-  repeatY: RepeatMode.repeat,
+  pattern: patternImage,
+  repeat: PatternRepeat.repeat,
 );
 
-engine.setFillPaint(pattern);
+engine.fillStyle = pattern;
 engine.fillRect(0, 0, 400, 400);
 ```
 
@@ -159,87 +178,100 @@ engine.fillRect(0, 0, 400, 400);
 ```dart
 import 'dart:math' as math;
 
+final patternImage = Bitmap(16, 16);
+
 // Scaled and rotated pattern
-final transform = Matrix4.identity()
+final transform = Matrix2D.identity()
   ..scale(0.5, 0.5)
   ..rotate(math.pi / 4);
 
 final transformedPattern = PatternPaint(
-  bitmap: patternImage,
+  pattern: patternImage,
   transform: transform,
-  repeatX: RepeatMode.repeat,
-  repeatY: RepeatMode.repeat,
+  repeat: PatternRepeat.repeat,
 );
 ```
 
 ### Repeat Modes
 
+<!-- snippet: skip -->
 ```dart
-enum RepeatMode {
-  repeat,     // Tile in both directions
-  noRepeat,   // Single instance
-  repeatX,    // Tile horizontally only
-  repeatY,    // Tile vertically only
-  mirror,     // Mirror tile
+enum PatternRepeat {
+  repeat,    // Tile in both directions (default)
+  repeatX,   // Tile horizontally only
+  repeatY,   // Tile vertically only
+  noRepeat,  // Single instance
 }
 ```
 
 ## Image Filters
 
+Filters are static methods on `ImageFilters`. Each takes a `Bitmap`, such as `engine.canvas`, and returns a new bitmap;
+the source is left unchanged. Blur radii are limited by `Limits.radius` (256 pixels by default); a larger radius throws
+an `ArgumentError`.
+
 ### Blur Filters
 
 ```dart
-// Gaussian blur - high quality
-engine.applyGaussianBlur(5.0);  // 5 pixel radius
+import 'dart:math' as math;
 
-// Box blur - faster, lower quality
-engine.applyBoxBlur(5.0);
+// Gaussian blur - high quality; the kernel radius is 3 * sigma
+final gaussian = ImageFilters.gaussian(engine.canvas, 2.0);
+
+// Box blur - simple, lower quality
+final box = ImageFilters.box(engine.canvas, 5);
+
+// Stack blur - fast approximation of a Gaussian blur
+final stack = ImageFilters.stack(engine.canvas, 5);
 
 // Motion blur
-engine.applyMotionBlur(
-  angle: math.pi / 4,  // 45 degrees
-  distance: 20.0,      // 20 pixels
+final motion = ImageFilters.motion(
+  engine.canvas,
+  math.pi / 4,  // 45 degrees
+  20,           // 20 pixels
 );
+
+// Save a result
+final png = GraphicsEngine.encode(gaussian, 'png');
 ```
 
 ### Sharpening
 
 ```dart
-// Basic sharpen
-engine.applySharpen();  // Default amount
-
-// Custom sharpen amount
-engine.applySharpen(2.0);  // Stronger sharpening
+// Sharpen with an amount; larger values sharpen more
+final sharpened = ImageFilters.sharpen(engine.canvas, 1.0);
+final stronger = ImageFilters.sharpen(engine.canvas, 2.0);
 ```
 
 ### Edge Detection
 
 ```dart
-// Detect edges
-engine.applyEdgeDetect(threshold: 128);
+// Sobel edge detection with a threshold
+final edges = ImageFilters.edges(engine.canvas, threshold: 128);
 
-// Sobel edge detection
+// A single Sobel kernel through the custom filter
 final sobelX = [
-  [-1, 0, 1],
-  [-2, 0, 2],
-  [-1, 0, 1],
+  [-1.0, 0.0, 1.0],
+  [-2.0, 0.0, 2.0],
+  [-1.0, 0.0, 1.0],
 ];
-engine.applyConvolution(sobelX);
+final horizontal = ImageFilters.convolve(engine.canvas, sobelX);
 ```
 
 ### Emboss Effect
 
 ```dart
 // Create embossed effect
-engine.applyEmboss();
+final embossed = ImageFilters.emboss(engine.canvas);
+final deeper = ImageFilters.emboss(engine.canvas, strength: 2.0);
 
 // Custom emboss kernel
 final embossKernel = [
-  [-2, -1, 0],
-  [-1,  1, 1],
-  [ 0,  1, 2],
+  [-2.0, -1.0, 0.0],
+  [-1.0,  1.0, 1.0],
+  [ 0.0,  1.0, 2.0],
 ];
-engine.applyConvolution(embossKernel);
+final custom = ImageFilters.convolve(engine.canvas, embossKernel);
 ```
 
 ### Custom Convolution Filters
@@ -247,19 +279,19 @@ engine.applyConvolution(embossKernel);
 ```dart
 // Custom kernel for special effects
 final customKernel = [
-  [0,  -1,  0],
-  [-1,  5, -1],
-  [0,  -1,  0],
+  [0.0,  -1.0,  0.0],
+  [-1.0,  5.0, -1.0],
+  [0.0,  -1.0,  0.0],
 ];
 
-engine.applyConvolution(
-  customKernel,
-  divisor: 1.0,  // Sum of kernel values
-  bias: 0.0,      // Brightness adjustment
-);
+final filtered = ImageFilters.convolve(engine.canvas, customKernel);
 ```
 
 ## Advanced Clipping
+
+`clip(path)` uses the non-zero rule, as W3C canvas does; `clip(path, FillRule.evenOdd)` chooses even-odd. Each clip intersects with
+the current clip region, and `save`/`restore` bracket it. See the [Rendering Model](rendering-model.md) for how fill
+rules are applied.
 
 ### Complex Clip Regions
 
@@ -268,22 +300,19 @@ engine.applyConvolution(
 final star = PathBuilder();
 for (int i = 0; i < 10; i++) {
   final angle = i * math.pi / 5;
-  final radius = i.isEven ? 50 : 25;
+  final radius = i.isEven ? 50.0 : 25.0;
   final x = 100 + radius * math.cos(angle);
   final y = 100 + radius * math.sin(angle);
-  
+
   if (i == 0) {
     star.moveTo(x, y);
   } else {
     star.lineTo(x, y);
   }
 }
-star.close();
+star.closePath();
 
-engine.clipWithFillRule(
-  star.build(),
-  fillRule: FillRule.evenOdd,
-);
+engine.clip(star.build(), rule: FillRule.nonZero);
 ```
 
 ### Clip Intersection
@@ -291,17 +320,13 @@ engine.clipWithFillRule(
 ```dart
 // First clip - circle
 engine.save();
-engine.beginPath();
-engine.arc(100, 100, 50, 0, math.pi * 2);
-engine.clip();
+engine.clip(PathBuilder().circle(100, 100, 50).build());
 
 // Second clip - rectangle (intersection)
-engine.beginPath();
-engine.rect(75, 75, 100, 100);
-engine.clip();
+engine.clipRect(75, 75, 100, 100);
 
 // Only the intersection area will be drawn
-engine.setFillColor(const Color(0xFFFF0000));
+engine.fillStyle = const Color(0xFFFF0000);
 engine.fillRect(0, 0, 400, 400);
 engine.restore();
 ```
@@ -309,146 +334,136 @@ engine.restore();
 ### Text as Clipping Path
 
 ```dart
-// Create text path
-engine.setFontSize(72);
-engine.beginPath();
-engine.textPath('CLIP', 50, 100);
-engine.clip();
+// Requires a font; see loadFont or readFont
+engine.fontSize = 72;
+engine.clipText('CLIP', 50, 100);
 
 // Draw gradient through text
 final gradient = LinearGradient(
-  start: Point(0, 0),
-  end: Point(300, 150),
-  colors: [
-    const Color(0xFFFF0000),
-    const Color(0xFF00FF00),
-    const Color(0xFF0000FF),
+  start: const Point(0, 0),
+  end: const Point(300, 150),
+  stops: [
+    ColorStop(0.0, const Color(0xFFFF0000)),
+    ColorStop(0.5, const Color(0xFF00FF00)),
+    ColorStop(1.0, const Color(0xFF0000FF)),
   ],
 );
-engine.setFillPaint(gradient);
+engine.fillStyle = gradient;
 engine.fillRect(0, 0, 400, 200);
 ```
 
 ## Path Operations
 
-### Boolean Operations
+### Experimental Outline Operations
+
+`PathOperations.union`, `intersection`, `difference` and `xor` (and the matching `Path` methods) are `@experimental`
+and only approximate. They are not true boolean operations on areas:
+
+- Each input path is flattened into a single ring: the points of all its contours are joined in order, cubic curves
+  are subdivided, and arc and ellipse commands are dropped.
+- `union` joins the two outlines into one ring; overlapping or contained shapes are not merged.
+- `intersection` is a ring through the edges that cross the other outline; it is empty when the outlines do not
+  cross, even if one shape lies inside the other.
+- `difference` keeps the edges of the first path that do not cross the second; the second path's area is never
+  subtracted.
+- `xor` keeps the edges of either path that do not cross the other.
 
 ```dart
-// Create two paths
-final circle = PathBuilder()
-  ..arc(100, 100, 50, 0, math.pi * 2)
-  ..close();
+// Two paths built from curves and lines (arc commands would be dropped)
+final circle = PathBuilder().circle(100, 100, 50).build();
+final square = PathBuilder().rect(75, 75, 50, 50).build();
 
-final square = PathBuilder()
-  ..rect(75, 75, 50, 50)
-  ..close();
+final union = PathOperations.union(circle, square);
+final intersection = PathOperations.intersection(circle, square);
+final difference = PathOperations.difference(circle, square);
+final xor = PathOperations.xor(circle, square);
 
-// Union - combine paths
-final union = PathOperations.union(circle.build(), square.build());
 engine.fill(union);
-
-// Intersection - overlap only
-final intersection = PathOperations.intersection(circle.build(), square.build());
-engine.fill(intersection);
-
-// Difference - subtract second from first
-final difference = PathOperations.difference(circle.build(), square.build());
-engine.fill(difference);
-
-// XOR - non-overlapping parts
-final xor = PathOperations.xor(circle.build(), square.build());
-engine.fill(xor);
 ```
+
+`PathOperations.offset(path, distance)` is also experimental: it returns the outline of the path stroked with width
+`2 * distance.abs()`, so it covers `distance` on both sides. The sign of `distance` is ignored, and self-intersections
+are not removed.
 
 ### Path Simplification
 
 ```dart
-// Simplify complex path
-final complex = createComplexPath();
-final simplified = complex.simplify(tolerance: 1.0);
+// A path with many nearly collinear points
+final builder = PathBuilder()..moveTo(0, 0);
+for (int i = 1; i <= 100; i++) {
+  builder.lineTo(i * 2.0, math.sin(i * 0.05) * 20);
+}
+final complex = builder.build();
+
+// Ramer-Douglas-Peucker simplification
+final simplified = complex.simplify(1.0);
 
 // Reduces number of points while maintaining shape
-print('Original points: ${complex.commands.length}');
-print('Simplified points: ${simplified.commands.length}');
+print('Original commands: ${complex.commands.length}');
+print('Simplified commands: ${simplified.commands.length}');
 ```
 
-### Path Bounds and Hit Testing
+### Path Bounds
 
 ```dart
-final path = PathBuilder()
-  ..moveTo(10, 10)
-  ..lineTo(100, 50)
-  ..lineTo(50, 100)
-  ..close();
+final path = (PathBuilder()
+      ..moveTo(10, 10)
+      ..lineTo(100, 50)
+      ..lineTo(50, 100)
+      ..closePath())
+    .build();
 
 // Get bounding box
-final bounds = path.build().getBounds();
-print('Bounds: ${bounds.x}, ${bounds.y}, ${bounds.width}, ${bounds.height}');
-
-// Hit testing
-final point = Point(55, 60);
-final contains = path.build().contains(point);
-print('Path contains point: $contains');
-
-// With fill rule
-final containsEvenOdd = path.build().contains(
-  point,
-  fillRule: FillRule.evenOdd,
-);
+final bounds = path.bounds;
+print('Bounds: ${bounds.left}, ${bounds.top}, ${bounds.width}, ${bounds.height}');
 ```
 
+`Path.commands` and each `PathCommand.points` are unmodifiable; add commands with `PathBuilder`, `Path.add` or
+`Path.addPath`.
+
 ## Advanced Text Features
+
+Font, size, alignment and baseline are part of the saved state, so `save` and `restore` cover them.
 
 ### Text Metrics
 
 ```dart
-engine.setFontSize(24);
+engine.fontSize = 24;
 final metrics = engine.measureText('Hello World');
 
 print('Width: ${metrics.width}');
-print('Ascent: ${metrics.actualBoundingBoxAscent}');
-print('Descent: ${metrics.actualBoundingBoxDescent}');
+print('Ascent: ${metrics.ascent}');
+print('Descent: ${metrics.descent}');
 
 // Use for text positioning
-final centerX = 200;
-final centerY = 100;
-engine.setTextAlign(TextAlign.center);
-engine.setTextBaseline(TextBaseline.middle);
+const centerX = 200.0;
+const centerY = 100.0;
+engine.textAlign = TextAlign.center;
+engine.textBaseline = TextBaseline.middle;
 engine.fillText('Centered', centerX, centerY);
 ```
 
 ### Font Fallback
 
-```dart
-// Set primary font
-await engine.setFontFromFile('fonts/primary.ttf');
-
-// Add fallback fonts for missing glyphs
-engine.addFallbackFont(await Font.fromFile('fonts/emoji.ttf'));
-engine.addFallbackFont(await Font.fromFile('fonts/chinese.ttf'));
-engine.addFallbackFont(await Font.fromFile('fonts/arabic.ttf'));
-
-// Automatically uses fallback for missing characters
-engine.fillText('Hello 😀 你好 مرحبا', 10, 50);
-```
-
-### Advanced Text Layout
+`fillText` uses only the current font. To draw text that needs glyphs from several fonts, build a `FontFallbackChain`
+and fill the path it produces. Each font is added only when it loads.
 
 ```dart
-// Letter spacing
-engine.setLetterSpacing(2.0);
-engine.fillText('SPACED', 10, 50);
+import 'package:libgfx/io/local_file_system.dart';
 
-// Word spacing
-engine.setWordSpacing(10.0);
-engine.fillText('Word spacing example', 10, 80);
+const filesystem = LocalGraphicsFileSystem();
+final chain = FontFallbackChain();
 
-// Text along path
-final pathForText = PathBuilder()
-  ..moveTo(50, 100)
-  ..quadTo(150, 50, 250, 100);
+// Primary font first, then fallbacks for missing glyphs
+for (final path in ['fonts/primary.ttf', 'fonts/chinese.ttf', 'fonts/arabic.ttf']) {
+  final result = await chain.load(path, filesystem: filesystem);
+  if (result case Err(:final error)) {
+    print('Skipped $path: ${error.message}');
+  }
+}
 
-engine.fillTextAlongPath('Text along a curved path', pathForText.build());
+// Each run of characters uses the first font that has its glyphs
+engine.fill(chain.path('Hello 你好 مرحبا', 10, 50, 24));
 ```
 
 ## Blend Modes
@@ -457,44 +472,49 @@ engine.fillTextAlongPath('Text along a curved path', pathForText.build());
 
 ```dart
 // Draw base layer
-engine.setFillColor(const Color(0xFF0000FF));
-engine.fillCircle(100, 100, 50);
+engine.fillStyle = const Color(0xFF0000FF);
+engine.fill(PathBuilder().circle(100, 100, 50).build());
 
 // Set blend mode
-engine.setGlobalCompositeOperation(BlendMode.multiply);
+engine.globalCompositeOperation = BlendMode.multiply;
 
 // Draw overlay
-engine.setFillColor(const Color(0xFFFF0000));
-engine.fillCircle(130, 100, 50);
+engine.fillStyle = const Color(0xFFFF0000);
+engine.fill(PathBuilder().circle(130, 100, 50).build());
 ```
 
 ### Common Blend Modes
 
 ```dart
-// Darken modes
-BlendMode.multiply    // Multiply colors
-BlendMode.darken      // Use darker color
-BlendMode.colorBurn   // Darken based on overlay
+const modes = [
+  // Porter-Duff modes
+  BlendMode.srcOver,     // Source over destination (default)
+  BlendMode.src,         // Replace destination
+  BlendMode.srcIn,       // Source inside destination
+  BlendMode.dstOut,      // Destination outside source
+  BlendMode.xor,         // Exclusive OR
+  BlendMode.clear,       // Clear destination
 
-// Lighten modes
-BlendMode.screen      // Inverse multiply
-BlendMode.lighten     // Use lighter color
-BlendMode.colorDodge  // Lighten based on overlay
+  // Darken modes
+  BlendMode.multiply,    // Multiply colors
+  BlendMode.darken,      // Use darker color
+  BlendMode.colorBurn,   // Darken based on overlay
 
-// Contrast modes
-BlendMode.overlay     // Multiply or screen
-BlendMode.hardLight   // Vivid light
-BlendMode.softLight   // Subtle light
+  // Lighten modes
+  BlendMode.screen,      // Inverse multiply
+  BlendMode.lighten,     // Use lighter color
+  BlendMode.colorDodge,  // Lighten based on overlay
+  BlendMode.add,         // Add colors
 
-// Difference modes
-BlendMode.difference  // Absolute difference
-BlendMode.exclusion   // Softer difference
+  // Contrast modes
+  BlendMode.overlay,     // Multiply or screen
+  BlendMode.hardLight,   // Vivid light
+  BlendMode.softLight,   // Subtle light
 
-// Component modes
-BlendMode.hue         // Use overlay hue
-BlendMode.saturation  // Use overlay saturation
-BlendMode.color       // Use overlay color
-BlendMode.luminosity  // Use overlay luminosity
+  // Difference modes
+  BlendMode.difference,  // Absolute difference
+  BlendMode.exclusion,   // Softer difference
+];
 ```
 
 ## Performance Optimization
@@ -502,62 +522,63 @@ BlendMode.luminosity  // Use overlay luminosity
 ### Path Caching
 
 ```dart
+import 'package:libgfx/libgfx.dart';
+
 class OptimizedDrawing {
   late Path _cachedPath;
-  
+
   void initialize() {
     // Build complex path once
     _cachedPath = PathBuilder()
       // ... complex operations
       .build();
   }
-  
+
   void draw(GraphicsEngine engine) {
     // Reuse cached path
     for (int i = 0; i < 100; i++) {
       engine.save();
-      engine.translate(i * 10, 0);
+      engine.translate(i * 10.0, 0);
       engine.fill(_cachedPath);
       engine.restore();
     }
   }
 }
-```
 
-### Batch Rendering
-
-```dart
-// Batch similar operations
-engine.setFillColor(const Color(0xFF2196F3));
-engine.beginBatch();
-
-for (final position in positions) {
-  engine.fillCircle(position.x, position.y, 5);
+void main() {
+  final drawing = OptimizedDrawing()..initialize();
+  drawing.draw(GraphicsEngine(400, 300));
 }
-
-engine.endBatch();
 ```
 
 ### Dirty Rectangle Optimization
 
 ```dart
+import 'package:libgfx/libgfx.dart';
+
 class IncrementalRenderer {
-  final regions = <Rectangle>[];
-  
-  void markDirty(Rectangle region) {
+  final regions = <Rectangle<double>>[];
+
+  void markDirty(Rectangle<double> region) {
     regions.add(region);
   }
-  
-  void render(GraphicsEngine engine) {
+
+  void render(GraphicsEngine engine, void Function(GraphicsEngine) drawScene) {
     // Only redraw dirty regions
     for (final region in regions) {
       engine.save();
-      engine.clipRect(region.x, region.y, region.width, region.height);
+      engine.clipRect(region.left, region.top, region.width, region.height);
       drawScene(engine);
       engine.restore();
     }
     regions.clear();
   }
+}
+
+void main() {
+  final renderer = IncrementalRenderer()
+    ..markDirty(const Rectangle(10.0, 10.0, 50.0, 50.0));
+  renderer.render(GraphicsEngine(400, 300), (engine) => engine.fillRect(0, 0, 400, 300));
 }
 ```
 
@@ -565,12 +586,19 @@ class IncrementalRenderer {
 
 ### Creating Custom Paint
 
+A `Paint` returns the color at a device-space point; `inverse` maps that point back to user space.
+
 ```dart
+import 'dart:math' as math;
+
+import 'package:libgfx/libgfx.dart';
+
 class CustomPaint extends Paint {
   @override
-  Color getColorAt(double x, double y) {
-    // Custom color calculation
-    final distance = math.sqrt(x * x + y * y);
+  Color sample(Point point, Matrix2D inverse) {
+    // Custom color calculation in user space
+    final user = inverse.transform(point);
+    final distance = math.sqrt(user.x * user.x + user.y * user.y);
     final intensity = (math.sin(distance * 0.1) + 1) / 2;
     return Color.fromRGBA(
       (255 * intensity).round(),
@@ -579,12 +607,12 @@ class CustomPaint extends Paint {
       255,
     );
   }
-  
-  @override
-  Paint transform(Matrix4 matrix) {
-    // Return transformed paint
-    return this; // Or create new transformed instance
-  }
+}
+
+void main() {
+  final engine = GraphicsEngine(400, 300);
+  engine.fillStyle = CustomPaint();
+  engine.fillRect(0, 0, 400, 300);
 }
 ```
 
@@ -598,21 +626,21 @@ void drawPerspective(GraphicsEngine engine) {
   final cards = 5;
   for (int i = 0; i < cards; i++) {
     engine.save();
-    
+
     // Calculate perspective scale
     final z = i * 0.2;
     final scale = 1 / (1 + z);
-    
+
     // Apply transformations
     engine.translate(200, 200);
     engine.scale(scale, scale);
     engine.rotate(i * 0.1);
-    
+
     // Draw with opacity based on depth
-    engine.setGlobalAlpha(1.0 - z * 0.5);
-    engine.setFillColor(const Color(0xFF2196F3));
+    engine.globalAlpha = 1.0 - z * 0.5;
+    engine.fillStyle = const Color(0xFF2196F3);
     engine.fillRect(-50, -75, 100, 150);
-    
+
     engine.restore();
   }
 }
@@ -620,23 +648,21 @@ void drawPerspective(GraphicsEngine engine) {
 
 ### Transform Interpolation
 
+`Matrix2D` does not decompose a transform, so keep the components and interpolate those:
+
 ```dart
-Matrix4 interpolateTransform(Matrix4 from, Matrix4 to, double t) {
-  // Decompose transforms
-  final fromTranslate = from.getTranslation();
-  final toTranslate = to.getTranslation();
-  final fromRotation = from.getRotation();
-  final toRotation = to.getRotation();
-  final fromScale = from.getScale();
-  final toScale = to.getScale();
-  
+Matrix2D interpolateTransform(
+  Point fromTranslate, double fromRotation, Point fromScale,
+  Point toTranslate, double toRotation, Point toScale,
+  double t,
+) {
   // Interpolate components
   final translate = Point.lerp(fromTranslate, toTranslate, t);
-  final rotation = lerpDouble(fromRotation, toRotation, t);
+  final rotation = fromRotation + (toRotation - fromRotation) * t;
   final scale = Point.lerp(fromScale, toScale, t);
-  
+
   // Reconstruct transform
-  return Matrix4.identity()
+  return Matrix2D.identity()
     ..translate(translate.x, translate.y)
     ..rotate(rotation)
     ..scale(scale.x, scale.y);
@@ -648,34 +674,33 @@ Matrix4 interpolateTransform(Matrix4 from, Matrix4 to, double t) {
 ### Tiled Rendering
 
 ```dart
+import 'dart:math' as math;
+
+import 'package:libgfx/libgfx.dart';
+
 class TiledRenderer {
   static const tileSize = 256;
-  
+
   void renderLargeImage(Bitmap source, GraphicsEngine engine) {
     final tilesX = (source.width / tileSize).ceil();
     final tilesY = (source.height / tileSize).ceil();
-    
+
     for (int y = 0; y < tilesY; y++) {
       for (int x = 0; x < tilesX; x++) {
         final srcX = x * tileSize;
         final srcY = y * tileSize;
         final srcW = math.min(tileSize, source.width - srcX);
         final srcH = math.min(tileSize, source.height - srcY);
-        
-        engine.drawImageRect(
-          source,
-          srcX: srcX.toDouble(),
-          srcY: srcY.toDouble(),
-          srcWidth: srcW.toDouble(),
-          srcHeight: srcH.toDouble(),
-          destX: srcX.toDouble(),
-          destY: srcY.toDouble(),
-          destWidth: srcW.toDouble(),
-          destHeight: srcH.toDouble(),
-        );
+
+        // Source rectangle, then destination rectangle
+        engine.drawImage(source, srcX.toDouble(), srcY.toDouble(), width: srcW.toDouble(), height: srcH.toDouble(), source: Rectangle(srcX.toDouble(), srcY.toDouble(), srcW.toDouble(), srcH.toDouble()));
       }
     }
   }
+}
+
+void main() {
+  TiledRenderer().renderLargeImage(Bitmap(1000, 1000), GraphicsEngine(1000, 1000));
 }
 ```
 
@@ -683,29 +708,31 @@ class TiledRenderer {
 
 ### Path Visualization
 
+`PathBuilder` stores quadratic curves as cubic curves, so a path holds `moveTo`, `lineTo`, `cubicCurveTo`, `arc`,
+`ellipse` and `close` commands (the `PathCommandType` values).
+
 ```dart
 void debugPath(GraphicsEngine engine, Path path) {
   // Draw path outline
-  engine.setStrokeColor(const Color(0xFF000000));
-  engine.setStrokeWidth(1);
+  engine.strokeStyle = const Color(0xFF000000);
+  engine.lineWidth = 1;
   engine.stroke(path);
-  
+
   // Draw control points
-  engine.setFillColor(const Color(0xFFFF0000));
+  engine.fillStyle = const Color(0xFFFF0000);
   for (final command in path.commands) {
-    if (command is QuadraticCurveToCommand) {
-      engine.fillCircle(command.cpx, command.cpy, 3);
-    } else if (command is BezierCurveToCommand) {
-      engine.fillCircle(command.cp1x, command.cp1y, 3);
-      engine.fillCircle(command.cp2x, command.cp2y, 3);
+    if (command.type == PathCommandType.cubicCurveTo) {
+      engine.fill(PathBuilder().circle(command.points[0].x, command.points[0].y, 3).build());
+      engine.fill(PathBuilder().circle(command.points[1].x, command.points[1].y, 3).build());
     }
   }
-  
+
   // Draw vertices
-  engine.setFillColor(const Color(0xFF0000FF));
+  engine.fillStyle = const Color(0xFF0000FF);
   for (final command in path.commands) {
-    if (command is MoveToCommand || command is LineToCommand) {
-      engine.fillCircle(command.x, command.y, 4);
+    if (command.type == PathCommandType.moveTo ||
+        command.type == PathCommandType.lineTo) {
+      engine.fill(PathBuilder().circle(command.points[0].x, command.points[0].y, 4).build());
     }
   }
 }
@@ -717,17 +744,17 @@ void debugPath(GraphicsEngine engine, Path path) {
 class RenderProfiler {
   final stopwatch = Stopwatch();
   final timings = <String, Duration>{};
-  
+
   void startTimer(String operation) {
     stopwatch.reset();
     stopwatch.start();
   }
-  
+
   void endTimer(String operation) {
     stopwatch.stop();
     timings[operation] = stopwatch.elapsed;
   }
-  
+
   void printReport() {
     print('Render Performance Report:');
     for (final entry in timings.entries) {
@@ -735,11 +762,19 @@ class RenderProfiler {
     }
   }
 }
+
+void main() {
+  final profiler = RenderProfiler()..startTimer('fill');
+  profiler
+    ..endTimer('fill')
+    ..printReport();
+}
 ```
 
 ## See Also
 
 - [Getting Started Guide](getting-started.md)
+- [Rendering Model](rendering-model.md)
 - [API Reference](api-reference.md)
 - [Examples](examples.md)
 

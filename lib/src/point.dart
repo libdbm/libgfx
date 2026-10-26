@@ -3,13 +3,13 @@ import 'utils/math_utils.dart';
 
 /// A class representing a 2D vector or point.
 class Point {
-  double x;
-  double y;
+  final double x;
+  final double y;
 
-  Point(this.x, this.y);
+  const Point(this.x, this.y);
 
   /// A vector with both components set to zero.
-  static Point get zero => Point(0, 0);
+  static Point get zero => const Point(0, 0);
 
   /// The squared length of the vector. Faster than `length`.
   double get length2 => x * x + y * y;
@@ -19,9 +19,9 @@ class Point {
 
   /// Returns a new vector with the same direction but a length of 1.
   Point normalized() {
-    final l = length;
-    if (l == 0) return Point.zero;
-    return Point(x / l, y / l);
+    final magnitude = length;
+    if (magnitude == 0) return Point.zero;
+    return Point(x / magnitude, y / magnitude);
   }
 
   /// Calculates the dot product with another vector.
@@ -46,14 +46,14 @@ class Point {
   }
 
   /// Calculate the distance to another point
-  double distanceTo(Point other) {
+  double distance(Point other) {
     final dx = x - other.x;
     final dy = y - other.y;
     return sqrt(dx * dx + dy * dy);
   }
 
-  /// Calculate the squared distance to another point (faster than distanceTo)
-  double distanceToSquared(Point other) {
+  /// Calculate the squared distance to another point (faster than distance)
+  double distance2(Point other) {
     final dx = x - other.x;
     final dy = y - other.y;
     return dx * dx + dy * dy;
@@ -61,9 +61,9 @@ class Point {
 
   /// Rotate this point around the origin by the given angle (in radians)
   Point rotate(double angle) {
-    final cosAngle = cos(angle);
-    final sinAngle = sin(angle);
-    return Point(x * cosAngle - y * sinAngle, x * sinAngle + y * cosAngle);
+    final cosine = cos(angle);
+    final sine = sin(angle);
+    return Point(x * cosine - y * sine, x * sine + y * cosine);
   }
 
   /// Rotate this point around another point by the given angle (in radians)

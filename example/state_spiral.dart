@@ -2,11 +2,13 @@ import 'dart:math' as math;
 
 import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
-import 'package:libgfx/src/color/color_utils.dart';
 
 Future<void> main() async {
   const filesystem = LocalGraphicsFileSystem();
-  final engine = GraphicsEngine(800, 800, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+  // page units
+  final engine = GraphicsEngine(2 * 800, 2 * 800, filesystem: filesystem)
+    ..scale(2, 2);
 
   // Set background
   engine.clear(const Color(0xFF1a1a2e));
@@ -33,26 +35,24 @@ Future<void> main() async {
 
     // Calculate color based on iteration
     final hue = (i * 7) % 360;
-    final color = ColorUtils.hslToRgb(HSLColor(hue.toDouble(), 0.7, 0.6));
+    final color = HSLColor(hue.toDouble(), 0.7, 0.6).color;
 
     // Alternate between filled and stroked squares
     if (i % 3 == 0) {
       // Filled square with gradient
-      engine.setFillPaint(
-        LinearGradient(
-          startPoint: Point(-initialSize / 2, -initialSize / 2),
-          endPoint: Point(initialSize / 2, initialSize / 2),
-          stops: [
-            ColorStop(0.0, color),
-            ColorStop(1.0, ColorUtils.adjustBrightness(color, -0.5)),
-          ],
-        ),
+      engine.fillStyle = LinearGradient(
+        start: Point(-initialSize / 2, -initialSize / 2),
+        end: Point(initialSize / 2, initialSize / 2),
+        stops: [
+          ColorStop(0.0, color),
+          ColorStop(1.0, ColorUtils.brighten(color, -0.5)),
+        ],
       );
       drawSquare(engine, initialSize, filled: true);
     } else if (i % 3 == 1) {
       // Stroked square with varying width
-      engine.setStrokeColor(color);
-      engine.setLineWidth(3 + (i % 5));
+      engine.strokeStyle = color;
+      engine.lineWidth = 3 + (i % 5);
 
       // Add dashed pattern for some squares
       if (i % 7 == 0) {
@@ -64,9 +64,9 @@ Future<void> main() async {
       drawSquare(engine, initialSize, filled: false);
     } else {
       // Combination of fill and stroke
-      engine.setFillColor(ColorUtils.adjustBrightness(color, -0.7));
-      engine.setStrokeColor(color);
-      engine.setLineWidth(2);
+      engine.fillStyle = ColorUtils.brighten(color, -0.7);
+      engine.strokeStyle = color;
+      engine.lineWidth = 2;
 
       drawSquare(engine, initialSize, filled: true, stroked: true);
     }
@@ -79,7 +79,7 @@ Future<void> main() async {
   addDecorativeElements(engine);
 
   // Save the result
-  await engine.saveToFile('output/spiral_state_demo.ppm');
+  await engine.write('output/spiral_state_demo.ppm');
   print('Saved output/spiral_state_demo.ppm');
 }
 
@@ -95,7 +95,7 @@ void drawSquare(
     ..lineTo(halfSize, -halfSize)
     ..lineTo(halfSize, halfSize)
     ..lineTo(-halfSize, halfSize)
-    ..close();
+    ..closePath();
 
   final square = builder.build();
 
@@ -126,10 +126,10 @@ void addDecorativeElements(GraphicsEngine engine) {
     engine.rotate(i * math.pi / 2);
 
     // Set style for decorative element
-    engine.setStrokeColor(const Color(0xFF16213e));
-    engine.setLineWidth(3);
-    engine.setLineCap(LineCap.round);
-    engine.setLineJoin(LineJoin.round);
+    engine.strokeStyle = const Color(0xFF16213e);
+    engine.lineWidth = 3;
+    engine.lineCap = LineCap.round;
+    engine.lineJoin = LineJoin.round;
 
     // Draw decorative corner pattern
     final decoration = PathBuilder()
@@ -151,8 +151,8 @@ void addDecorativeElements(GraphicsEngine engine) {
     engine.save();
 
     final radius = 50.0 + i * 30;
-    engine.setStrokeColor(Color(0x40FFFFFF));
-    engine.setLineWidth(1);
+    engine.strokeStyle = Color(0x40FFFFFF);
+    engine.lineWidth = 1;
     engine.setLineDash([5, 10]);
 
     drawCircle(engine, radius);

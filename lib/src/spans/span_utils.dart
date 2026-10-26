@@ -8,7 +8,7 @@ class SpanUtils {
   /// Process spans by scanline
   static List<Span> processByScanline(
     List<Span> spans,
-    List<Span> Function(int y, List<Span> lineSpans) processor,
+    List<Span> Function(int y, List<Span> line) processor,
   ) {
     final grouped = groupByScanline(spans);
     final result = <Span>[];

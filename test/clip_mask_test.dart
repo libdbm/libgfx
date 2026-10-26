@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:libgfx/libgfx.dart';
 import 'package:libgfx/src/graphics_context.dart';
+import 'package:libgfx/src/spans/span.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -16,28 +17,28 @@ void main() {
       // Create elliptical clip path
       final clipPath = PathBuilder()
           .ellipse(100, 100, 80, 50, 0, 0, 2 * math.pi)
-          .close()
+          .closePath()
           .build();
       context.clip(clipPath);
 
       // Fill entire canvas with red - should only show inside ellipse
-      context.state.fillPaint = SolidPaint(Color.fromARGB(255, 255, 0, 0));
+      context.state.fillPaint = Color.fromARGB(255, 255, 0, 0);
       final fillPath = PathBuilder()
           .moveTo(0, 0)
           .lineTo(200, 0)
           .lineTo(200, 200)
           .lineTo(0, 200)
-          .close()
+          .closePath()
           .build();
       context.fill(fillPath);
 
       // Check center is red (accounting for Y-flip)
       final centerY = bitmap.height - 1 - 100;
-      expect(bitmap.getPixel(100, centerY).red, greaterThanOrEqualTo(254));
+      expect(bitmap.pixel(100, centerY).red, greaterThanOrEqualTo(254));
 
       // Check corners are still white
-      final corner1 = bitmap.getPixel(10, 10);
-      final corner2 = bitmap.getPixel(190, 10);
+      final corner1 = bitmap.pixel(10, 10);
+      final corner2 = bitmap.pixel(190, 10);
 
       // Corners should be white (not red)
       expect(corner1.red, 255);
@@ -59,13 +60,13 @@ void main() {
       // Create a heart-shaped clip path using bezier curves
       final clipPath = PathBuilder()
           .moveTo(100, 70)
-          .curveTo(100, 50, 80, 30, 60, 30)
-          .curveTo(40, 30, 20, 50, 20, 70)
-          .curveTo(20, 90, 100, 150, 100, 170)
-          .curveTo(100, 150, 180, 90, 180, 70)
-          .curveTo(180, 50, 160, 30, 140, 30)
-          .curveTo(120, 30, 100, 50, 100, 70)
-          .close()
+          .bezierCurveTo(100, 50, 80, 30, 60, 30)
+          .bezierCurveTo(40, 30, 20, 50, 20, 70)
+          .bezierCurveTo(20, 90, 100, 150, 100, 170)
+          .bezierCurveTo(100, 150, 180, 90, 180, 70)
+          .bezierCurveTo(180, 50, 160, 30, 140, 30)
+          .bezierCurveTo(120, 30, 100, 50, 100, 70)
+          .closePath()
           .build();
       context.clip(clipPath);
 
@@ -77,22 +78,22 @@ void main() {
           0,
           (255 * (200 - y) / 200).round(),
         );
-        context.state.fillPaint = SolidPaint(color);
+        context.state.fillPaint = color;
         final rect = PathBuilder()
             .moveTo(0, y.toDouble())
             .lineTo(200, y.toDouble())
             .lineTo(200, (y + 10).toDouble())
             .lineTo(0, (y + 10).toDouble())
-            .close()
+            .closePath()
             .build();
         context.fill(rect);
       }
 
       // Check that clipping worked - corners should be white
-      expect(bitmap.getPixel(10, 10).alpha, 255);
-      expect(bitmap.getPixel(10, 10).red, 255);
-      expect(bitmap.getPixel(10, 10).green, 255);
-      expect(bitmap.getPixel(10, 10).blue, 255);
+      expect(bitmap.pixel(10, 10).alpha, 255);
+      expect(bitmap.pixel(10, 10).red, 255);
+      expect(bitmap.pixel(10, 10).green, 255);
+      expect(bitmap.pixel(10, 10).blue, 255);
     });
 
     test('multiple intersecting clip regions', () {
@@ -106,7 +107,7 @@ void main() {
       final clip1 = PathBuilder()
           .moveTo(150, 100)
           .arc(100, 100, 50, 0, 2 * math.pi)
-          .close()
+          .closePath()
           .build();
       context.clip(clip1);
 
@@ -116,35 +117,35 @@ void main() {
           .lineTo(180, 80)
           .lineTo(180, 120)
           .lineTo(80, 120)
-          .close()
+          .closePath()
           .build();
       context.clip(clip2);
 
       // Fill with green - should only appear in intersection
-      context.state.fillPaint = SolidPaint(Color.fromARGB(255, 0, 255, 0));
+      context.state.fillPaint = Color.fromARGB(255, 0, 255, 0);
       final fillPath = PathBuilder()
           .moveTo(0, 0)
           .lineTo(200, 0)
           .lineTo(200, 200)
           .lineTo(0, 200)
-          .close()
+          .closePath()
           .build();
       context.fill(fillPath);
 
       // Center should be green (in both clip regions)
       final centerY = bitmap.height - 1 - 100;
-      expect(bitmap.getPixel(100, centerY).green, greaterThanOrEqualTo(254));
+      expect(bitmap.pixel(100, centerY).green, greaterThanOrEqualTo(254));
 
       // Point in circle but outside rectangle should be white
       final outsideRectY = bitmap.height - 1 - 130;
-      final outsideRectColor = bitmap.getPixel(100, outsideRectY);
+      final outsideRectColor = bitmap.pixel(100, outsideRectY);
       expect(outsideRectColor.red, 255);
       expect(outsideRectColor.green, 255);
       expect(outsideRectColor.blue, 255);
 
       // Point in rectangle but outside circle should be white
       final outsideCircleY = bitmap.height - 1 - 100;
-      final outsideCircleColor = bitmap.getPixel(170, outsideCircleY);
+      final outsideCircleColor = bitmap.pixel(170, outsideCircleY);
       expect(outsideCircleColor.red, 255);
       expect(outsideCircleColor.green, 255);
       expect(outsideCircleColor.blue, 255);
@@ -163,26 +164,26 @@ void main() {
           .lineTo(79.5, 20.5)
           .lineTo(79.5, 79.5)
           .lineTo(20.5, 79.5)
-          .close()
+          .closePath()
           .build();
       context.clip(clipPath);
 
       // Fill with white
-      context.state.fillPaint = SolidPaint(Color.fromARGB(255, 255, 255, 255));
+      context.state.fillPaint = Color.fromARGB(255, 255, 255, 255);
       final fillPath = PathBuilder()
           .moveTo(0, 0)
           .lineTo(100, 0)
           .lineTo(100, 100)
           .lineTo(0, 100)
-          .close()
+          .closePath()
           .build();
       context.fill(fillPath);
 
       // Check for anti-aliased edges
       // The edge at 20.5 should produce AA pixels at x=20 and x=21
       final edgeY = bitmap.height - 1 - 21; // Y-flip
-      final leftEdgePixel = bitmap.getPixel(20, edgeY); // Just outside
-      final rightEdgePixel = bitmap.getPixel(21, edgeY); // Just inside
+      final leftEdgePixel = bitmap.pixel(20, edgeY); // Just outside
+      final rightEdgePixel = bitmap.pixel(21, edgeY); // Just inside
 
       // Due to fractional coordinates, we might see AA on the edge pixels
       // For now, just verify the clipping is working correctly
@@ -203,26 +204,26 @@ void main() {
           .lineTo(90, 10)
           .lineTo(90, 90)
           .lineTo(10, 90)
-          .close()
+          .closePath()
           .build();
       context.clip(clipPath);
 
       // Draw a thick diagonal line
-      context.state.fillPaint = SolidPaint(Color.fromARGB(255, 0, 0, 0));
+      context.state.fillPaint = Color.fromARGB(255, 0, 0, 0);
       // Create a thicker diagonal rectangle
       final linePath = PathBuilder()
           .moveTo(20, 20)
           .lineTo(80, 80)
           .lineTo(75, 85)
           .lineTo(15, 25)
-          .close()
+          .closePath()
           .build();
       context.fill(linePath);
 
       // The line should be visible within the clip region
       // Check near the diagonal
       final midY = bitmap.height - 1 - 50;
-      final nearDiagonalPixel = bitmap.getPixel(48, midY);
+      final nearDiagonalPixel = bitmap.pixel(48, midY);
       // Near the diagonal should show the black line
       expect(
         nearDiagonalPixel.red +
@@ -241,7 +242,7 @@ void main() {
 
       // Apply transformation
       context.state.transform.translate(100, 100);
-      context.state.transform.rotateZ(math.pi / 6); // 30 degrees
+      context.state.transform.rotate(math.pi / 6); // 30 degrees
       context.state.transform.translate(-100, -100);
 
       // Create a square clip path (will be rotated due to transform)
@@ -250,29 +251,29 @@ void main() {
           .lineTo(150, 50)
           .lineTo(150, 150)
           .lineTo(50, 150)
-          .close()
+          .closePath()
           .build();
       context.clip(clipPath);
 
       // Reset transform and fill
       context.state.transform = Matrix2D.identity();
-      context.state.fillPaint = SolidPaint(Color.fromARGB(255, 255, 0, 0));
+      context.state.fillPaint = Color.fromARGB(255, 255, 0, 0);
       final fillPath = PathBuilder()
           .moveTo(0, 0)
           .lineTo(200, 0)
           .lineTo(200, 200)
           .lineTo(0, 200)
-          .close()
+          .closePath()
           .build();
       context.fill(fillPath);
 
       // Center should be red (inside rotated clip)
       final centerY = bitmap.height - 1 - 100;
-      expect(bitmap.getPixel(100, centerY).red, greaterThanOrEqualTo(254));
+      expect(bitmap.pixel(100, centerY).red, greaterThanOrEqualTo(254));
 
       // Corners should be white (outside rotated clip)
-      final corner1 = bitmap.getPixel(10, 10);
-      final corner2 = bitmap.getPixel(190, 190);
+      final corner1 = bitmap.pixel(10, 10);
+      final corner2 = bitmap.pixel(190, 190);
       expect(corner1.red, 255);
       expect(corner1.green, 255);
       expect(corner1.blue, 255);
@@ -294,18 +295,18 @@ void main() {
           .lineTo(150, 50)
           .lineTo(150, 150)
           .lineTo(50, 150)
-          .close()
+          .closePath()
           .build();
       context.clip(clipPath);
 
       // Fill with red - should only fill the clipped area
-      context.state.fillPaint = SolidPaint(Color.fromARGB(255, 255, 0, 0));
+      context.state.fillPaint = Color.fromARGB(255, 255, 0, 0);
       final fillPath = PathBuilder()
           .moveTo(0, 0)
           .lineTo(200, 0)
           .lineTo(200, 200)
           .lineTo(0, 200)
-          .close()
+          .closePath()
           .build();
       context.fill(fillPath);
 
@@ -318,36 +319,36 @@ void main() {
           .lineTo(125, 75)
           .lineTo(125, 125)
           .lineTo(75, 125)
-          .close()
+          .closePath()
           .build();
       context.clip(clip2);
 
       // Fill with green - should only fill the intersection
-      context.state.fillPaint = SolidPaint(Color.fromARGB(255, 0, 255, 0));
+      context.state.fillPaint = Color.fromARGB(255, 0, 255, 0);
       context.fill(fillPath);
 
       // Restore to previous clip state
       context.restore();
 
       // Fill with blue - should fill the original clipped area
-      context.state.fillPaint = SolidPaint(Color.fromARGB(255, 0, 0, 255));
+      context.state.fillPaint = Color.fromARGB(255, 0, 0, 255);
       context.fill(fillPath);
 
       // Check the results
       // Center (was green, then blue) should be blue
-      final centerColor = bitmap.getPixel(100, bitmap.height - 1 - 100);
+      final centerColor = bitmap.pixel(100, bitmap.height - 1 - 100);
       expect(centerColor.red, 0);
       expect(centerColor.green, 0);
       expect(centerColor.blue, greaterThanOrEqualTo(254));
 
       // Edge of first clip (was red, then blue) should be blue
-      final edgeColor = bitmap.getPixel(60, bitmap.height - 1 - 60);
+      final edgeColor = bitmap.pixel(60, bitmap.height - 1 - 60);
       expect(edgeColor.red, 0);
       expect(edgeColor.green, 0);
       expect(edgeColor.blue, greaterThanOrEqualTo(254));
 
       // Outside all clips should still be white
-      final outsideColor = bitmap.getPixel(10, bitmap.height - 1 - 10);
+      final outsideColor = bitmap.pixel(10, bitmap.height - 1 - 10);
       expect(outsideColor.red, greaterThanOrEqualTo(254));
       expect(outsideColor.green, greaterThanOrEqualTo(254));
       expect(outsideColor.blue, greaterThanOrEqualTo(254));
@@ -366,7 +367,7 @@ void main() {
           .lineTo(40, 0)
           .lineTo(40, 40)
           .lineTo(0, 40)
-          .close()
+          .closePath()
           .build();
       context.clip(clip1);
 
@@ -375,29 +376,63 @@ void main() {
           .lineTo(100, 60)
           .lineTo(100, 100)
           .lineTo(60, 100)
-          .close()
+          .closePath()
           .build();
       context.clip(clip2);
 
       // Try to fill - nothing should be drawn due to empty intersection
-      context.state.fillPaint = SolidPaint(Color.fromARGB(255, 255, 0, 0));
+      context.state.fillPaint = Color.fromARGB(255, 255, 0, 0);
       final fillPath = PathBuilder()
           .moveTo(0, 0)
           .lineTo(100, 0)
           .lineTo(100, 100)
           .lineTo(0, 100)
-          .close()
+          .closePath()
           .build();
       context.fill(fillPath);
 
       // All pixels should still be white
       for (int y = 0; y < 100; y += 10) {
         for (int x = 0; x < 100; x += 10) {
-          expect(bitmap.getPixel(x, y).red, greaterThanOrEqualTo(254));
-          expect(bitmap.getPixel(x, y).green, greaterThanOrEqualTo(254));
-          expect(bitmap.getPixel(x, y).blue, greaterThanOrEqualTo(254));
+          expect(bitmap.pixel(x, y).red, greaterThanOrEqualTo(254));
+          expect(bitmap.pixel(x, y).green, greaterThanOrEqualTo(254));
+          expect(bitmap.pixel(x, y).blue, greaterThanOrEqualTo(254));
         }
       }
+    });
+
+    group('Clip coverage', () {
+      ClipRegion row(final int coverage) => ClipRegion(
+        rows: {
+          0: [Span(0, 0, 4, coverage)],
+        },
+        bounds: const Rectangle(0, 0, 4, 1),
+      );
+
+      test('clip multiplies span and clip coverage', () {
+        final clipped = row(64).clip([Span(0, 0, 4, 128)]);
+
+        expect(clipped, hasLength(1));
+        expect(clipped.single.coverage, closeTo(32, 1));
+      });
+
+      test('intersect multiplies the coverage of both regions', () {
+        final combined = row(128).intersect(row(64));
+
+        expect(combined.rows[0]!.single.coverage, closeTo(32, 1));
+      });
+
+      test('fill through an anti-aliased clip has partial edge alpha', () {
+        final engine = GraphicsEngine(20, 20)
+          ..clip(PathBuilder().circle(10, 10, 6).build())
+          ..fillStyle = const Color(0xFFFF0000)
+          ..fillRect(0, 0, 20, 20);
+
+        final partial = engine.canvas.pixels
+            .map((pixel) => pixel >> 24 & 0xFF)
+            .where((alpha) => alpha > 0 && alpha < 255);
+        expect(partial, isNotEmpty);
+      });
     });
   });
 }

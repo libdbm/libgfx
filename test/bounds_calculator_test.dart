@@ -8,7 +8,7 @@ void main() {
       test('calculates extrema for U-shaped curve', () {
         final path = PathBuilder()
           ..moveTo(0, 0)
-          ..cubicCurveTo(100, 0, 100, 100, 0, 100);
+          ..bezierCurveTo(100, 0, 100, 100, 0, 100);
 
         final bounds = BoundsCalculator.boundsOf(
           path.build(),
@@ -25,7 +25,7 @@ void main() {
       test('calculates extrema for S-shaped curve', () {
         final path = PathBuilder()
           ..moveTo(0, 50)
-          ..cubicCurveTo(50, 0, 50, 100, 100, 50);
+          ..bezierCurveTo(50, 0, 50, 100, 100, 50);
 
         final bounds = BoundsCalculator.boundsOf(
           path.build(),
@@ -42,7 +42,7 @@ void main() {
       test('handles degenerate cubic (straight line)', () {
         final path = PathBuilder()
           ..moveTo(0, 0)
-          ..cubicCurveTo(33, 0, 66, 0, 100, 0);
+          ..bezierCurveTo(33, 0, 66, 0, 100, 0);
 
         final bounds = BoundsCalculator.boundsOf(
           path.build(),
@@ -63,7 +63,7 @@ void main() {
 
         final path = PathBuilder()
           ..moveTo(0, 0)
-          ..cubicCurveTo(30, -30, 60, 30, 90, 0);
+          ..bezierCurveTo(30, -30, 60, 30, 90, 0);
 
         final bounds = BoundsCalculator.boundsOf(path.build(), transform);
 
@@ -77,8 +77,8 @@ void main() {
       test('handles multiple connected curves', () {
         final path = PathBuilder()
           ..moveTo(0, 0)
-          ..cubicCurveTo(50, -50, 100, -50, 150, 0)
-          ..cubicCurveTo(200, 50, 250, 50, 300, 0);
+          ..bezierCurveTo(50, -50, 100, -50, 150, 0)
+          ..bezierCurveTo(200, 50, 250, 50, 300, 0);
 
         final bounds = BoundsCalculator.boundsOf(
           path.build(),
@@ -95,7 +95,7 @@ void main() {
         // A curve where the extrema would be outside [0,1] parameter range
         final path = PathBuilder()
           ..moveTo(0, 0)
-          ..cubicCurveTo(10, 10, 20, 20, 30, 30);
+          ..bezierCurveTo(10, 10, 20, 20, 30, 30);
 
         final bounds = BoundsCalculator.boundsOf(
           path.build(),

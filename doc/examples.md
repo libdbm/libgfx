@@ -2,7 +2,7 @@
 
 This document provides complete, runnable examples demonstrating various features of libgfx.
 
-Important: File IO requires a configured GraphicsFileSystem. For VM/CLI usage, add this to your imports and engine construction in the examples below:
+Important: File IO requires a configured GraphicsFileSystem. For VM/CLI usage, the examples below import it and pass it to the engine:
 
 ```dart
 import 'package:libgfx/io/local_file_system.dart';
@@ -14,103 +14,118 @@ On web, implement your own GraphicsFileSystem and pass it to the engine.
 
 ## Note on File Formats and IO
 
-The examples call `engine.saveToFile(...)`. This method uses the configured GraphicsFileSystem and auto-detects the format from the file extension (png, bmp, p3, p6, ppm). For example:
+The examples call `engine.write(...)`. This method uses the configured GraphicsFileSystem and auto-detects the format from the file extension (png, bmp, p3, p6, ppm). For example:
 
 ```dart
-await engine.saveToFile('output.png');
-await engine.saveToFile('output.bmp');
+await engine.write('output.png');
+await engine.write('output.bmp');
 ```
 
 Note: You must configure a GraphicsFileSystem (e.g., LocalGraphicsFileSystem) for file operations. See the Getting Started guide.
+
+Text rendering needs a font: `fillText` throws when no font is set. The examples that draw text load
+`data/fonts/NotoSans-Regular.ttf`, which `./scripts/download_fonts.sh` downloads. Loading returns a `Result`, so a
+missing font is reported instead of thrown.
 
 ## Basic Drawing Example
 
 A simple example showing basic shapes and colors.
 
 ```dart
-import 'package:libgfx/libgfx.dart';
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
+import 'package:libgfx/libgfx.dart';
+
 void main() async {
-  final engine = GraphicsEngine(800, 600);
+  final engine = GraphicsEngine(
+    800,
+    600,
+    filesystem: const LocalGraphicsFileSystem(),
+  );
   
+  // Strokes a straight line
+  void line(double x1, double y1, double x2, double y2) {
+    engine.stroke((PathBuilder()..moveTo(x1, y1)..lineTo(x2, y2)).build());
+  }
+
   // White background
   engine.clear(const Color(0xFFFFFFFF));
-  
+
   // Draw a house
   // House body
-  engine.setFillColor(const Color(0xFFD2691E));
-  engine.fillRect(200, 300, 200, 150);
+  engine.fillStyle = const Color(0xFFD2691E);
+  engine.fillRect(200, 150, 200, 150);
   
   // Roof
   final roof = PathBuilder()
     ..moveTo(180, 300)
-    ..lineTo(300, 200)
+    ..lineTo(300, 400)
     ..lineTo(420, 300)
-    ..close();
-  engine.setFillColor(const Color(0xFF8B0000));
+    ..closePath();
+  engine.fillStyle = const Color(0xFF8B0000);
   engine.fill(roof.build());
   
   // Door
-  engine.setFillColor(const Color(0xFF654321));
-  engine.fillRect(280, 380, 40, 70);
+  engine.fillStyle = const Color(0xFF654321);
+  engine.fillRect(280, 150, 40, 70);
   
   // Windows
-  engine.setFillColor(const Color(0xFF87CEEB));
-  engine.fillRect(230, 330, 40, 40);
-  engine.fillRect(330, 330, 40, 40);
+  engine.fillStyle = const Color(0xFF87CEEB);
+  engine.fillRect(230, 230, 40, 40);
+  engine.fillRect(330, 230, 40, 40);
   
   // Window frames
-  engine.setStrokeColor(const Color(0xFF000000));
-  engine.setStrokeWidth(2);
-  engine.strokeRect(230, 330, 40, 40);
-  engine.strokeLine(250, 330, 250, 370);
-  engine.strokeLine(230, 350, 270, 350);
-  engine.strokeRect(330, 330, 40, 40);
-  engine.strokeLine(350, 330, 350, 370);
-  engine.strokeLine(330, 350, 370, 350);
+  engine.strokeStyle = const Color(0xFF000000);
+  engine.lineWidth = 2;
+  engine.strokeRect(230, 230, 40, 40);
+  line(250, 230, 250, 270);
+  line(230, 250, 270, 250);
+  engine.strokeRect(330, 230, 40, 40);
+  line(350, 230, 350, 270);
+  line(330, 250, 370, 250);
   
   // Sun
-  engine.setFillColor(const Color(0xFFFFD700));
-  engine.fillCircle(650, 100, 40);
+  engine.fillStyle = const Color(0xFFFFD700);
+  engine.fill(PathBuilder().circle(650, 500, 40).build());
   
   // Sun rays
-  engine.setStrokeColor(const Color(0xFFFFD700));
-  engine.setStrokeWidth(3);
+  engine.strokeStyle = const Color(0xFFFFD700);
+  engine.lineWidth = 3;
   for (int i = 0; i < 8; i++) {
     final angle = i * math.pi / 4;
     final x1 = 650 + 50 * math.cos(angle);
-    final y1 = 100 + 50 * math.sin(angle);
+    final y1 = 500 + 50 * math.sin(angle);
     final x2 = 650 + 70 * math.cos(angle);
-    final y2 = 100 + 70 * math.sin(angle);
-    engine.strokeLine(x1, y1, x2, y2);
+    final y2 = 500 + 70 * math.sin(angle);
+    line(x1, y1, x2, y2);
   }
   
   // Tree
-  engine.setFillColor(const Color(0xFF8B4513));
-  engine.fillRect(500, 350, 30, 100);
-  engine.setFillColor(const Color(0xFF228B22));
-  engine.fillCircle(515, 320, 40);
-  engine.fillCircle(500, 340, 35);
-  engine.fillCircle(530, 340, 35);
+  engine.fillStyle = const Color(0xFF8B4513);
+  engine.fillRect(500, 150, 30, 100);
+  engine.fillStyle = const Color(0xFF228B22);
+  engine.fill(PathBuilder().circle(515, 280, 40).build());
+  engine.fill(PathBuilder().circle(500, 260, 35).build());
+  engine.fill(PathBuilder().circle(530, 260, 35).build());
   
   // Grass
-  engine.setFillColor(const Color(0xFF90EE90));
-  engine.fillRect(0, 450, 800, 150);
+  engine.fillStyle = const Color(0xFF90EE90);
+  engine.fillRect(0, 0, 800, 150);
   
   // Clouds
-  engine.setFillColor(const Color(0xFFFFFFFF).withAlpha(200));
+  engine.fillStyle = const Color(0xC8FFFFFF);
   void drawCloud(double x, double y) {
-    engine.fillCircle(x, y, 20);
-    engine.fillCircle(x + 15, y, 25);
-    engine.fillCircle(x + 30, y, 20);
-    engine.fillCircle(x + 7, y - 10, 18);
-    engine.fillCircle(x + 23, y - 10, 18);
+    engine.fill(PathBuilder().circle(x, y, 20).build());
+    engine.fill(PathBuilder().circle(x + 15, y, 25).build());
+    engine.fill(PathBuilder().circle(x + 30, y, 20).build());
+    engine.fill(PathBuilder().circle(x + 7, y + 10, 18).build());
+    engine.fill(PathBuilder().circle(x + 23, y + 10, 18).build());
   }
-  drawCloud(100, 80);
-  drawCloud(350, 120);
+  drawCloud(100, 520);
+  drawCloud(350, 480);
   
-  await engine.saveToFile('house_scene.ppm');
+  await engine.write('house_scene.ppm');
   print('House scene saved to house_scene.ppm');
 }
 ```
@@ -120,198 +135,212 @@ void main() async {
 Demonstrates all gradient types and spread modes.
 
 ```dart
-import 'package:libgfx/libgfx.dart';
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
+import 'package:libgfx/libgfx.dart';
+
 void main() async {
-  final engine = GraphicsEngine(800, 600);
+  final engine = GraphicsEngine(
+    800,
+    600,
+    filesystem: const LocalGraphicsFileSystem(),
+  );
   engine.clear(const Color(0xFFF0F0F0));
-  
+
+  // Load a font for the labels
+  final font = await engine.loadFont('data/fonts/NotoSans-Regular.ttf');
+  if (font case Err(:final error)) {
+    print('Cannot load font: ${error.message}');
+    return;
+  }
+
   // Linear gradient examples
   engine.save();
-  engine.translate(50, 50);
+  engine.translate(50, 450);
   
   // Horizontal gradient
   final horizontalGradient = LinearGradient(
     start: Point(0, 0),
     end: Point(100, 0),
-    colors: [
-      const Color(0xFFFF0000),
-      const Color(0xFF00FF00),
-      const Color(0xFF0000FF),
+    stops: [
+      ColorStop(0.0, const Color(0xFFFF0000)),
+      ColorStop(0.5, const Color(0xFF00FF00)),
+      ColorStop(1.0, const Color(0xFF0000FF)),
     ],
-    stops: [0.0, 0.5, 1.0],
   );
-  engine.setFillPaint(horizontalGradient);
+  engine.fillStyle = horizontalGradient;
   engine.fillRect(0, 0, 100, 100);
   
   // Vertical gradient
   engine.translate(120, 0);
   final verticalGradient = LinearGradient(
-    start: Point(0, 0),
-    end: Point(0, 100),
-    colors: [
-      const Color(0xFFFFFF00),
-      const Color(0xFFFF00FF),
+    start: Point(0, 100),
+    end: Point(0, 0),
+    stops: [
+      ColorStop(0.0, const Color(0xFFFFFF00)),
+      ColorStop(1.0, const Color(0xFFFF00FF)),
     ],
   );
-  engine.setFillPaint(verticalGradient);
+  engine.fillStyle = verticalGradient;
   engine.fillRect(0, 0, 100, 100);
   
-  // Diagonal gradient
+  // Diagonal gradient, built from the engine factory; gradients are
+  // immutable, so addColorStop returns a new gradient
   engine.translate(120, 0);
-  final diagonalGradient = LinearGradient(
-    start: Point(0, 0),
-    end: Point(100, 100),
-    colors: [
-      const Color(0xFF000000),
-      const Color(0xFFFFFFFF),
-    ],
-  );
-  engine.setFillPaint(diagonalGradient);
+  final diagonalGradient = engine
+      .createLinearGradient(0, 100, 100, 0)
+      .addColorStop(0.0, const Color(0xFF000000))
+      .addColorStop(1.0, const Color(0xFFFFFFFF));
+  engine.fillStyle = diagonalGradient;
   engine.fillRect(0, 0, 100, 100);
   
   engine.restore();
   
   // Radial gradient examples
   engine.save();
-  engine.translate(50, 200);
+  engine.translate(50, 300);
   
   // Basic radial
   final radialGradient = RadialGradient(
     center: Point(50, 50),
     radius: 50,
-    colors: [
-      const Color(0xFFFFFFFF),
-      const Color(0xFF2196F3),
+    stops: [
+      ColorStop(0.0, const Color(0xFFFFFFFF)),
+      ColorStop(1.0, const Color(0xFF2196F3)),
     ],
   );
-  engine.setFillPaint(radialGradient);
-  engine.fillCircle(50, 50, 50);
+  engine.fillStyle = radialGradient;
+  engine.fill(PathBuilder().circle(50, 50, 50).build());
   
   // Multi-stop radial
   engine.translate(120, 0);
   final multiRadial = RadialGradient(
     center: Point(50, 50),
     radius: 50,
-    colors: [
-      const Color(0xFFFFFF00),
-      const Color(0xFFFF9800),
-      const Color(0xFFFF5722),
-      const Color(0xFF000000),
+    stops: [
+      ColorStop(0.0, const Color(0xFFFFFF00)),
+      ColorStop(0.33, const Color(0xFFFF9800)),
+      ColorStop(0.67, const Color(0xFFFF5722)),
+      ColorStop(1.0, const Color(0xFF000000)),
     ],
-    stops: [0.0, 0.33, 0.67, 1.0],
   );
-  engine.setFillPaint(multiRadial);
-  engine.fillCircle(50, 50, 50);
+  engine.fillStyle = multiRadial;
+  engine.fill(PathBuilder().circle(50, 50, 50).build());
   
   // Focal point radial (3D sphere effect)
   engine.translate(120, 0);
   final focalRadial = RadialGradient(
     center: Point(50, 50),
     radius: 50,
-    focal: Point(35, 35),
-    colors: [
-      const Color(0xFFFFFFFF),
-      const Color(0xFF4CAF50),
-      const Color(0xFF1B5E20),
+    focal: Point(35, 65),
+    stops: [
+      ColorStop(0.0, const Color(0xFFFFFFFF)),
+      ColorStop(0.7, const Color(0xFF4CAF50)),
+      ColorStop(1.0, const Color(0xFF1B5E20)),
     ],
-    stops: [0.0, 0.7, 1.0],
   );
-  engine.setFillPaint(focalRadial);
-  engine.fillCircle(50, 50, 50);
+  engine.fillStyle = focalRadial;
+  engine.fill(PathBuilder().circle(50, 50, 50).build());
   
   engine.restore();
   
   // Conic gradient examples
   engine.save();
-  engine.translate(50, 350);
+  engine.translate(50, 150);
   
   // Color wheel
-  final colorWheel = ConicGradient(
+  final colorWheel = ConicalGradient(
     center: Point(50, 50),
     startAngle: 0,
-    colors: [
-      const Color(0xFFFF0000),
-      const Color(0xFFFFFF00),
-      const Color(0xFF00FF00),
-      const Color(0xFF00FFFF),
-      const Color(0xFF0000FF),
-      const Color(0xFFFF00FF),
-      const Color(0xFFFF0000),
+    stops: [
+      ColorStop(0.0, const Color(0xFFFF0000)),
+      ColorStop(0.167, const Color(0xFFFFFF00)),
+      ColorStop(0.333, const Color(0xFF00FF00)),
+      ColorStop(0.5, const Color(0xFF00FFFF)),
+      ColorStop(0.667, const Color(0xFF0000FF)),
+      ColorStop(0.833, const Color(0xFFFF00FF)),
+      ColorStop(1.0, const Color(0xFFFF0000)),
     ],
-    stops: [0.0, 0.167, 0.333, 0.5, 0.667, 0.833, 1.0],
   );
-  engine.setFillPaint(colorWheel);
-  engine.fillCircle(50, 50, 50);
+  engine.fillStyle = colorWheel;
+  engine.fill(PathBuilder().circle(50, 50, 50).build());
   
   // Pie chart effect
   engine.translate(120, 0);
-  final pieChart = ConicGradient(
+  final pieChart = ConicalGradient(
     center: Point(50, 50),
-    startAngle: -math.pi / 2,
-    colors: [
-      const Color(0xFFE91E63),
-      const Color(0xFFE91E63),
-      const Color(0xFF2196F3),
-      const Color(0xFF2196F3),
-      const Color(0xFF4CAF50),
-      const Color(0xFF4CAF50),
-      const Color(0xFFFF9800),
-      const Color(0xFFFF9800),
+    startAngle: math.pi / 2,
+    stops: [
+      ColorStop(0.0, const Color(0xFFE91E63)),
+      ColorStop(0.25, const Color(0xFFE91E63)),
+      ColorStop(0.25, const Color(0xFF2196F3)),
+      ColorStop(0.6, const Color(0xFF2196F3)),
+      ColorStop(0.6, const Color(0xFF4CAF50)),
+      ColorStop(0.8, const Color(0xFF4CAF50)),
+      ColorStop(0.8, const Color(0xFFFF9800)),
+      ColorStop(1.0, const Color(0xFFFF9800)),
     ],
-    stops: [0.0, 0.25, 0.25, 0.6, 0.6, 0.8, 0.8, 1.0],
   );
-  engine.setFillPaint(pieChart);
-  engine.fillCircle(50, 50, 50);
+  engine.fillStyle = pieChart;
+  engine.fill(PathBuilder().circle(50, 50, 50).build());
   
   engine.restore();
   
   // Spread mode demonstration
   engine.save();
-  engine.translate(450, 50);
+  engine.translate(450, 500);
   
   // Pad mode
-  engine.setFillColor(const Color(0xFF000000));
-  engine.fillText('Pad Mode', 0, -10);
+  engine.fillStyle = const Color(0xFF000000);
+  engine.fillText('Pad Mode', 0, 60);
   final padGradient = LinearGradient(
     start: Point(25, 0),
     end: Point(75, 0),
-    colors: [const Color(0xFFFF0000), const Color(0xFF0000FF)],
-    spreadMode: SpreadMode.pad,
+    stops: [
+      ColorStop(0.0, const Color(0xFFFF0000)),
+      ColorStop(1.0, const Color(0xFF0000FF)),
+    ],
+    spread: GradientSpread.pad,
   );
-  engine.setFillPaint(padGradient);
+  engine.fillStyle = padGradient;
   engine.fillRect(0, 0, 150, 50);
   
   // Repeat mode
-  engine.translate(0, 70);
-  engine.setFillColor(const Color(0xFF000000));
-  engine.fillText('Repeat Mode', 0, -10);
+  engine.translate(0, -70);
+  engine.fillStyle = const Color(0xFF000000);
+  engine.fillText('Repeat Mode', 0, 60);
   final repeatGradient = LinearGradient(
     start: Point(0, 0),
     end: Point(30, 0),
-    colors: [const Color(0xFFFF0000), const Color(0xFF0000FF)],
-    spreadMode: SpreadMode.repeat,
+    stops: [
+      ColorStop(0.0, const Color(0xFFFF0000)),
+      ColorStop(1.0, const Color(0xFF0000FF)),
+    ],
+    spread: GradientSpread.repeat,
   );
-  engine.setFillPaint(repeatGradient);
+  engine.fillStyle = repeatGradient;
   engine.fillRect(0, 0, 150, 50);
   
   // Reflect mode
-  engine.translate(0, 70);
-  engine.setFillColor(const Color(0xFF000000));
-  engine.fillText('Reflect Mode', 0, -10);
+  engine.translate(0, -70);
+  engine.fillStyle = const Color(0xFF000000);
+  engine.fillText('Reflect Mode', 0, 60);
   final reflectGradient = LinearGradient(
     start: Point(0, 0),
     end: Point(30, 0),
-    colors: [const Color(0xFFFF0000), const Color(0xFF0000FF)],
-    spreadMode: SpreadMode.reflect,
+    stops: [
+      ColorStop(0.0, const Color(0xFFFF0000)),
+      ColorStop(1.0, const Color(0xFF0000FF)),
+    ],
+    spread: GradientSpread.reflect,
   );
-  engine.setFillPaint(reflectGradient);
+  engine.fillStyle = reflectGradient;
   engine.fillRect(0, 0, 150, 50);
   
   engine.restore();
   
-  await engine.saveToFile('gradients_showcase.ppm');
+  await engine.write('gradients_showcase.ppm');
   print('Gradients showcase saved');
 }
 ```
@@ -321,8 +350,27 @@ void main() async {
 Creates an animated spiral pattern using transformations.
 
 ```dart
-import 'package:libgfx/libgfx.dart';
 import 'dart:math' as math;
+
+import 'package:libgfx/io/local_file_system.dart';
+import 'package:libgfx/libgfx.dart';
+
+/// Converts a hue in degrees and saturation and lightness from 0 to 1 to an
+/// opaque color.
+Color hsl(double hue, double saturation, double lightness) {
+  final chroma = (1 - (2 * lightness - 1).abs()) * saturation;
+  final x = chroma * (1 - ((hue / 60) % 2 - 1).abs());
+  final m = lightness - chroma / 2;
+  final (r, g, b) = switch (hue ~/ 60) {
+    0 => (chroma, x, 0.0),
+    1 => (x, chroma, 0.0),
+    2 => (0.0, chroma, x),
+    3 => (0.0, x, chroma),
+    4 => (x, 0.0, chroma),
+    _ => (chroma, 0.0, x),
+  };
+  return Color.clamped((r + m) * 255, (g + m) * 255, (b + m) * 255, 255);
+}
 
 void main() async {
   const frames = 60;
@@ -330,8 +378,19 @@ void main() async {
   const height = 600;
   
   for (int frame = 0; frame < frames; frame++) {
-    final engine = GraphicsEngine(width, height);
+    final engine = GraphicsEngine(
+      width,
+      height,
+      filesystem: const LocalGraphicsFileSystem(),
+    );
     
+    // Load a font for the frame number
+    final font = await engine.loadFont('data/fonts/NotoSans-Regular.ttf');
+    if (font case Err(:final error)) {
+      print('Cannot load font: ${error.message}');
+      return;
+    }
+
     // Dark background
     engine.clear(const Color(0xFF0A0A0A));
     
@@ -359,12 +418,11 @@ void main() async {
         final hue = (arm * 45 + i * 15 + frame * 6) % 360;
         
         // Convert HSL to RGB
-        final color = HSLColor.fromAHSL(
-          1.0,
+        final color = hsl(
           hue.toDouble(),
           0.6,
           0.5 + (i / numCirclesPerArm) * 0.3,
-        ).toColor();
+        );
         
         engine.save();
         engine.translate(distance, 0);
@@ -374,19 +432,18 @@ void main() async {
         final glowGradient = RadialGradient(
           center: Point(0, 0),
           radius: size * 2,
-          colors: [
-            color,
-            color.withAlpha(100),
-            color.withAlpha(0),
+          stops: [
+            ColorStop(0.0, color),
+            ColorStop(0.5, Color.fromARGB(100, color.red, color.green, color.blue)),
+            ColorStop(1.0, Color.fromARGB(0, color.red, color.green, color.blue)),
           ],
-          stops: [0.0, 0.5, 1.0],
         );
-        engine.setFillPaint(glowGradient);
-        engine.fillCircle(0, 0, size * 2);
+        engine.fillStyle = glowGradient;
+        engine.fill(PathBuilder().circle(0, 0, size * 2).build());
         
         // Core circle
-        engine.setFillColor(color);
-        engine.fillCircle(0, 0, size);
+        engine.fillStyle = color;
+        engine.fill(PathBuilder().circle(0, 0, size).build());
         
         engine.restore();
       }
@@ -397,11 +454,11 @@ void main() async {
     engine.restore();
     
     // Add frame number
-    engine.setFillColor(const Color(0xFFFFFFFF));
-    engine.setFontSize(12);
-    engine.fillText('Frame ${frame + 1}/$frames', 10, height - 10);
+    engine.fillStyle = const Color(0xFFFFFFFF);
+    engine.fontSize = 12;
+    engine.fillText('Frame ${frame + 1}/$frames', 10, 10);
     
-    await engine.saveToFile('spiral_frame_${frame.toString().padLeft(3, '0')}.png');
+    await engine.write('spiral_frame_${frame.toString().padLeft(3, '0')}.png');
   }
   
   print('Spiral animation frames saved');
@@ -413,95 +470,98 @@ void main() async {
 Demonstrates various text rendering effects.
 
 ```dart
-import 'package:libgfx/libgfx.dart';
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
+import 'package:libgfx/libgfx.dart';
+
 void main() async {
-  final engine = GraphicsEngine(800, 600);
+  final engine = GraphicsEngine(
+    800,
+    600,
+    filesystem: const LocalGraphicsFileSystem(),
+  );
   engine.clear(const Color(0xFFFFFFFF));
   
   // Load font
-  await engine.setFontFromFile('fonts/NotoSans-Regular.ttf');
-  
+  final font = await engine.loadFont('data/fonts/NotoSans-Regular.ttf');
+  if (font case Err(:final error)) {
+    print('Cannot load font: ${error.message}');
+    return;
+  }
+
   // Simple text
-  engine.setFontSize(24);
-  engine.setFillColor(const Color(0xFF000000));
-  engine.fillText('Simple Text', 50, 50);
+  engine.fontSize = 24;
+  engine.fillStyle = const Color(0xFF000000);
+  engine.fillText('Simple Text', 50, 550);
   
   // Outlined text
-  engine.setFontSize(36);
-  engine.setFillColor(const Color(0xFFFFD700));
-  engine.fillText('Outlined Text', 50, 100);
-  engine.setStrokeColor(const Color(0xFF000000));
-  engine.setStrokeWidth(2);
-  engine.strokeText('Outlined Text', 50, 100);
+  engine.fontSize = 36;
+  engine.fillStyle = const Color(0xFFFFD700);
+  engine.fillText('Outlined Text', 50, 500);
+  engine.strokeStyle = const Color(0xFF000000);
+  engine.lineWidth = 2;
+  engine.strokeText('Outlined Text', 50, 500);
   
   // Gradient text
   engine.save();
-  engine.translate(50, 150);
-  engine.setFontSize(48);
+  engine.translate(50, 450);
+  engine.fontSize = 48;
   
-  // Create text path and use as clip
-  engine.beginPath();
-  engine.textPath('Gradient Text', 0, 0);
-  engine.clip();
-  
+  // Use the text outline as the clip
+  engine.clipText('Gradient Text', 0, 0);
+
   // Fill with gradient
   final textGradient = LinearGradient(
-    start: Point(0, -30),
-    end: Point(0, 20),
-    colors: [
-      const Color(0xFFFF0000),
-      const Color(0xFFFFFF00),
-      const Color(0xFF00FF00),
+    start: Point(0, 30),
+    end: Point(0, -20),
+    stops: [
+      ColorStop(0.0, const Color(0xFFFF0000)),
+      ColorStop(0.5, const Color(0xFFFFFF00)),
+      ColorStop(1.0, const Color(0xFF00FF00)),
     ],
   );
-  engine.setFillPaint(textGradient);
-  engine.fillRect(-10, -50, 400, 70);
+  engine.fillStyle = textGradient;
+  engine.fillRect(-10, -20, 400, 70);
   engine.restore();
   
   // Shadow text
-  engine.setFontSize(36);
+  engine.fontSize = 36;
   // Draw shadow
-  engine.setFillColor(const Color(0x80000000));
-  engine.fillText('Shadow Text', 53, 223);
+  engine.fillStyle = const Color(0x80000000);
+  engine.fillText('Shadow Text', 53, 377);
   // Draw text
-  engine.setFillColor(const Color(0xFF2196F3));
-  engine.fillText('Shadow Text', 50, 220);
+  engine.fillStyle = const Color(0xFF2196F3);
+  engine.fillText('Shadow Text', 50, 380);
   
   // Rotated text
   engine.save();
   engine.translate(400, 300);
-  engine.rotate(-math.pi / 6);
-  engine.setFontSize(28);
-  engine.setFillColor(const Color(0xFF9C27B0));
+  engine.rotate(math.pi / 6);
+  engine.fontSize = 28;
+  engine.fillStyle = const Color(0xFF9C27B0);
   engine.fillText('Rotated Text', 0, 0);
   engine.restore();
   
   // Text with different alignments
-  engine.setStrokeColor(const Color(0xFFCCCCCC));
-  engine.setStrokeWidth(1);
-  engine.strokeLine(400, 350, 400, 500);
+  engine.strokeStyle = const Color(0xFFCCCCCC);
+  engine.lineWidth = 1;
+  engine.stroke((PathBuilder()..moveTo(400, 250)..lineTo(400, 100)).build());
   
-  engine.setFontSize(20);
-  engine.setFillColor(const Color(0xFF000000));
+  engine.fontSize = 20;
+  engine.fillStyle = const Color(0xFF000000);
   
-  engine.setTextAlign(TextAlign.left);
-  engine.fillText('Left Aligned', 400, 380);
+  engine.textAlign = TextAlign.left;
+  engine.fillText('Left Aligned', 400, 220);
   
-  engine.setTextAlign(TextAlign.center);
-  engine.fillText('Center Aligned', 400, 410);
+  engine.textAlign = TextAlign.center;
+  engine.fillText('Center Aligned', 400, 190);
   
-  engine.setTextAlign(TextAlign.right);
-  engine.fillText('Right Aligned', 400, 440);
-  
-  // Letter spacing
-  engine.setTextAlign(TextAlign.left);
-  engine.setLetterSpacing(5);
-  engine.fillText('S P A C E D', 50, 300);
-  engine.setLetterSpacing(0);
+  engine.textAlign = TextAlign.right;
+  engine.fillText('Right Aligned', 400, 160);
   
   // Multi-line text simulation
+  engine.textAlign = TextAlign.left;
   final lines = [
     'This is a multi-line',
     'text example showing',
@@ -509,47 +569,64 @@ void main() async {
     'across multiple lines',
   ];
   
-  engine.setFontSize(18);
-  engine.setFillColor(const Color(0xFF333333));
+  engine.fontSize = 18;
+  engine.fillStyle = const Color(0xFF333333);
   for (int i = 0; i < lines.length; i++) {
-    engine.fillText(lines[i], 50, 350 + i * 25);
+    engine.fillText(lines[i], 50, 250 - i * 25);
   }
   
   // Curved text (manual positioning)
   engine.save();
-  engine.translate(600, 450);
+  engine.translate(600, 150);
   final text = 'CURVED';
-  engine.setFontSize(24);
-  engine.setFillColor(const Color(0xFFE91E63));
+  engine.fontSize = 24;
+  engine.fillStyle = const Color(0xFFE91E63);
   
   for (int i = 0; i < text.length; i++) {
     final angle = (i - text.length / 2) * 0.2;
-    final radius = 80;
+    final radius = 80.0;
     
     engine.save();
-    engine.rotate(angle);
-    engine.translate(0, -radius);
+    engine.rotate(-angle);
+    engine.translate(0, radius);
     engine.fillText(text[i], 0, 0);
     engine.restore();
   }
   engine.restore();
   
-  await engine.saveToFile('text_effects.png');
+  await engine.write('text_effects.png');
   print('Text effects saved');
 }
 ```
 
 ## Complex Path Operations
 
-Demonstrates boolean operations and path manipulation.
+Demonstrates the boolean operations in `PathOperations`. They are experimental and only approximate: each path is
+flattened into a single ring, arc and ellipse commands are dropped, and the result is built from edges, not areas.
+For example, `union` joins the two outlines into one ring instead of merging the shapes, and `difference` never
+subtracts a shape that lies wholly inside the other. See their API documentation for what each one computes. The
+shapes below are built from straight segments so that nothing is dropped.
 
 ```dart
-import 'package:libgfx/libgfx.dart';
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
+import 'package:libgfx/libgfx.dart';
+
 void main() async {
-  final engine = GraphicsEngine(800, 600);
+  final engine = GraphicsEngine(
+    800,
+    600,
+    filesystem: const LocalGraphicsFileSystem(),
+  );
   engine.clear(const Color(0xFFF5F5F5));
+  
+  // Load a font for the labels
+  final font = await engine.loadFont('data/fonts/NotoSans-Regular.ttf');
+  if (font case Err(:final error)) {
+    print('Cannot load font: ${error.message}');
+    return;
+  }
   
   // Helper function to create a star path
   Path createStar(double cx, double cy, double outerRadius, double innerRadius, int points) {
@@ -557,8 +634,8 @@ void main() async {
     for (int i = 0; i < points * 2; i++) {
       final angle = (i * math.pi) / points;
       final radius = i.isEven ? outerRadius : innerRadius;
-      final x = cx + radius * math.cos(angle - math.pi / 2);
-      final y = cy + radius * math.sin(angle - math.pi / 2);
+      final x = cx + radius * math.cos(angle + math.pi / 2);
+      final y = cy + radius * math.sin(angle + math.pi / 2);
       
       if (i == 0) {
         builder.moveTo(x, y);
@@ -566,269 +643,216 @@ void main() async {
         builder.lineTo(x, y);
       }
     }
-    builder.close();
+    builder.closePath();
     return builder.build();
   }
   
+  // Circles approximated by 48-sided polygons, since the boolean
+  // operations drop arc commands
+  Path createCircle(double cx, double cy, double radius) =>
+      PathBuilder().polygon(cx, cy, radius, 48).build();
+  
   // Create basic shapes
-  final circle1 = PathBuilder()
-    ..arc(100, 100, 50, 0, math.pi * 2)
-    ..close();
+  final circle1 = createCircle(100, 500, 50);
+  final circle2 = createCircle(140, 500, 50);
   
-  final circle2 = PathBuilder()
-    ..arc(140, 100, 50, 0, math.pi * 2)
-    ..close();
-  
-  final square = PathBuilder()
-    ..rect(250, 50, 100, 100)
-    ..close();
+  final square = PathBuilder().rect(250, 450, 100, 100).build();
   
   final triangle = PathBuilder()
-    ..moveTo(300, 70)
-    ..lineTo(350, 130)
-    ..lineTo(250, 130)
-    ..close();
+    ..moveTo(300, 530)
+    ..lineTo(350, 470)
+    ..lineTo(250, 470)
+    ..closePath();
   
   // Union operation
-  engine.setFillColor(const Color(0xFF2196F3));
-  final union = PathOperations.union(circle1.build(), circle2.build());
+  engine.fillStyle = const Color(0xFF2196F3);
+  final union = PathOperations.union(circle1, circle2);
   engine.fill(union);
-  engine.setStrokeColor(const Color(0xFF1976D2));
-  engine.setStrokeWidth(2);
+  engine.strokeStyle = const Color(0xFF1976D2);
+  engine.lineWidth = 2;
   engine.stroke(union);
   
   // Label
-  engine.setFillColor(const Color(0xFF000000));
-  engine.setFontSize(14);
-  engine.fillText('Union', 90, 170);
+  engine.fillStyle = const Color(0xFF000000);
+  engine.fontSize = 14;
+  engine.fillText('Union', 90, 430);
   
   // Intersection operation
   engine.save();
-  engine.translate(0, 200);
+  engine.translate(0, -200);
   
-  final circle3 = PathBuilder()
-    ..arc(100, 100, 50, 0, math.pi * 2)
-    ..close();
-  
-  final circle4 = PathBuilder()
-    ..arc(140, 100, 50, 0, math.pi * 2)
-    ..close();
-  
-  engine.setFillColor(const Color(0xFF4CAF50));
-  final intersection = PathOperations.intersection(circle3.build(), circle4.build());
+  engine.fillStyle = const Color(0xFF4CAF50);
+  final intersection = PathOperations.intersection(circle1, circle2);
   engine.fill(intersection);
-  engine.setStrokeColor(const Color(0xFF388E3C));
+  engine.strokeStyle = const Color(0xFF388E3C);
   engine.stroke(intersection);
   
-  engine.setFillColor(const Color(0xFF000000));
-  engine.fillText('Intersection', 70, 170);
+  engine.fillStyle = const Color(0xFF000000);
+  engine.fillText('Intersection', 70, 430);
   engine.restore();
   
   // Difference operation
   engine.save();
-  engine.translate(0, 400);
+  engine.translate(0, -400);
   
-  final circle5 = PathBuilder()
-    ..arc(100, 100, 50, 0, math.pi * 2)
-    ..close();
-  
-  final circle6 = PathBuilder()
-    ..arc(140, 100, 50, 0, math.pi * 2)
-    ..close();
-  
-  engine.setFillColor(const Color(0xFFFF9800));
-  final difference = PathOperations.difference(circle5.build(), circle6.build());
+  engine.fillStyle = const Color(0xFFFF9800);
+  final difference = PathOperations.difference(circle1, circle2);
   engine.fill(difference);
-  engine.setStrokeColor(const Color(0xFFE65100));
+  engine.strokeStyle = const Color(0xFFE65100);
   engine.stroke(difference);
   
-  engine.setFillColor(const Color(0xFF000000));
-  engine.fillText('Difference', 75, 170);
+  engine.fillStyle = const Color(0xFF000000);
+  engine.fillText('Difference', 75, 430);
   engine.restore();
   
   // XOR operation
   engine.save();
-  engine.translate(250, 200);
+  engine.translate(0, -200);
   
-  engine.setFillColor(const Color(0xFFE91E63));
-  final xor = PathOperations.xor(square.build(), triangle.build());
+  engine.fillStyle = const Color(0xFFE91E63);
+  final xor = PathOperations.xor(square, triangle.build());
   engine.fill(xor);
-  engine.setStrokeColor(const Color(0xFFC2185B));
+  engine.strokeStyle = const Color(0xFFC2185B);
   engine.stroke(xor);
   
-  engine.setFillColor(const Color(0xFF000000));
-  engine.fillText('XOR', 275, 170);
+  engine.fillStyle = const Color(0xFF000000);
+  engine.fillText('XOR', 285, 430);
   engine.restore();
   
-  // Complex combination
+  // Combining operations
   engine.save();
-  engine.translate(500, 100);
+  engine.translate(500, 300);
   
   final star = createStar(100, 100, 60, 30, 5);
-  final circle = PathBuilder()
-    ..arc(100, 100, 40, 0, math.pi * 2)
-    ..close();
+  final circle = createCircle(100, 100, 40);
   
-  // Create a complex shape
-  final complex1 = PathOperations.difference(star, circle.build());
-  final ring = PathBuilder()
-    ..arc(100, 100, 60, 0, math.pi * 2)
-    ..close();
-  final innerCircle = PathBuilder()
-    ..arc(100, 100, 45, 0, math.pi * 2)
-    ..close();
-  final complex2 = PathOperations.difference(ring.build(), innerCircle.build());
+  // Combine the results of several operations
+  final complex1 = PathOperations.difference(star, circle);
+  final ring = createCircle(100, 100, 60);
+  final innerCircle = createCircle(100, 100, 45);
+  final complex2 = PathOperations.difference(ring, innerCircle);
   final finalShape = PathOperations.union(complex1, complex2);
   
   // Draw with gradient
   final gradient = RadialGradient(
     center: Point(100, 100),
     radius: 60,
-    colors: [
-      const Color(0xFF9C27B0),
-      const Color(0xFF673AB7),
-      const Color(0xFF3F51B5),
+    stops: [
+      ColorStop(0.0, const Color(0xFF9C27B0)),
+      ColorStop(0.5, const Color(0xFF673AB7)),
+      ColorStop(1.0, const Color(0xFF3F51B5)),
     ],
   );
-  engine.setFillPaint(gradient);
+  engine.fillStyle = gradient;
   engine.fill(finalShape);
   
-  engine.setStrokeColor(const Color(0xFF311B92));
-  engine.setStrokeWidth(2);
+  engine.strokeStyle = const Color(0xFF311B92);
+  engine.lineWidth = 2;
   engine.stroke(finalShape);
   
-  engine.setFillColor(const Color(0xFF000000));
-  engine.fillText('Complex Shape', 50, 190);
+  engine.fillStyle = const Color(0xFF000000);
+  engine.fillText('Combined', 65, 10);
   engine.restore();
   
-  await engine.saveToFile('path_operations.png');
+  await engine.write('path_operations.png');
   print('Path operations saved');
 }
 ```
 
 ## Image Filter Effects
 
-Demonstrates various image filtering capabilities.
+Demonstrates various image filtering capabilities. Filters are static methods on `ImageFilters` that take a `Bitmap`
+and return a new one, so this example draws a test pattern into a small bitmap once and draws filtered copies of it
+onto the canvas.
 
 ```dart
-import 'package:libgfx/libgfx.dart';
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
+import 'package:libgfx/libgfx.dart';
+
 void main() async {
-  final engine = GraphicsEngine(800, 600);
+  const filesystem = LocalGraphicsFileSystem();
+  final engine = GraphicsEngine(800, 600, filesystem: filesystem);
   engine.clear(const Color(0xFFFFFFFF));
   
+  // A separate 100x100 engine for the test pattern
+  final tile = GraphicsEngine(100, 100, filesystem: filesystem);
+  
+  // Load a font into both engines
+  const path = 'data/fonts/NotoSans-Regular.ttf';
+  for (final target in [engine, tile]) {
+    if (await target.loadFont(path) case Err(:final error)) {
+      print('Cannot load font: ${error.message}');
+      return;
+    }
+  }
+  
   // Create a test pattern
-  void drawTestPattern(double x, double y) {
-    engine.save();
-    engine.translate(x, y);
-    
-    // Colorful circles
-    engine.setFillColor(const Color(0xFFFF0000));
-    engine.fillCircle(30, 30, 20);
-    engine.setFillColor(const Color(0xFF00FF00));
-    engine.fillCircle(70, 30, 20);
-    engine.setFillColor(const Color(0xFF0000FF));
-    engine.fillCircle(50, 60, 20);
-    
-    // Text
-    engine.setFillColor(const Color(0xFF000000));
-    engine.setFontSize(16);
-    engine.fillText('Test', 35, 90);
-    
-    // Border
-    engine.setStrokeColor(const Color(0xFF333333));
-    engine.setStrokeWidth(2);
-    engine.strokeRect(0, 0, 100, 100);
-    
-    engine.restore();
+  tile.clear(const Color(0xFFFFFFFF));
+  
+  // Colorful circles
+  tile.fillStyle = const Color(0xFFFF0000);
+  tile.fill(PathBuilder().circle(30, 70, 20).build());
+  tile.fillStyle = const Color(0xFF00FF00);
+  tile.fill(PathBuilder().circle(70, 70, 20).build());
+  tile.fillStyle = const Color(0xFF0000FF);
+  tile.fill(PathBuilder().circle(50, 40, 20).build());
+  
+  // Text
+  tile.fillStyle = const Color(0xFF000000);
+  tile.fontSize = 16;
+  tile.fillText('Test', 35, 6);
+  
+  // Border
+  tile.strokeStyle = const Color(0xFF333333);
+  tile.lineWidth = 2;
+  tile.strokeRect(0, 0, 100, 100);
+  
+  final source = tile.canvas;
+  
+  // Draws an image with a label below it
+  engine.fillStyle = const Color(0xFF000000);
+  engine.fontSize = 12;
+  void show(Bitmap image, String label, double x, double y) {
+    engine.drawImage(image, x, y);
+    engine.fillText(label, x, y - 20);
   }
   
   // Original
-  drawTestPattern(50, 50);
-  engine.setFillColor(const Color(0xFF000000));
-  engine.setFontSize(12);
-  engine.fillText('Original', 50, 170);
+  show(source, 'Original', 50, 450);
   
   // Gaussian Blur
-  engine.save();
-  engine.translate(200, 50);
-  engine.clipRect(0, 0, 100, 100);
-  drawTestPattern(0, 0);
-  engine.applyGaussianBlur(3.0);
-  engine.restore();
-  engine.fillText('Gaussian Blur', 200, 170);
+  show(ImageFilters.gaussian(source, 3.0), 'Gaussian Blur', 200, 450);
   
   // Box Blur
-  engine.save();
-  engine.translate(350, 50);
-  engine.clipRect(0, 0, 100, 100);
-  drawTestPattern(0, 0);
-  engine.applyBoxBlur(3.0);
-  engine.restore();
-  engine.fillText('Box Blur', 350, 170);
+  show(ImageFilters.box(source, 3), 'Box Blur', 350, 450);
   
   // Sharpen
-  engine.save();
-  engine.translate(500, 50);
-  engine.clipRect(0, 0, 100, 100);
-  drawTestPattern(0, 0);
-  engine.applySharpen(1.5);
-  engine.restore();
-  engine.fillText('Sharpen', 500, 170);
+  show(ImageFilters.sharpen(source, 1.5), 'Sharpen', 500, 450);
   
   // Edge Detection
-  engine.save();
-  engine.translate(650, 50);
-  engine.clipRect(0, 0, 100, 100);
-  drawTestPattern(0, 0);
-  engine.applyEdgeDetect(threshold: 100);
-  engine.restore();
-  engine.fillText('Edge Detect', 650, 170);
+  show(ImageFilters.edges(source, threshold: 100), 'Edge Detect', 650, 450);
   
   // Emboss
-  engine.save();
-  engine.translate(50, 250);
-  engine.clipRect(0, 0, 100, 100);
-  drawTestPattern(0, 0);
-  engine.applyEmboss();
-  engine.restore();
-  engine.fillText('Emboss', 50, 370);
+  show(ImageFilters.emboss(source), 'Emboss', 50, 250);
   
   // Motion Blur
-  engine.save();
-  engine.translate(200, 250);
-  engine.clipRect(0, 0, 100, 100);
-  drawTestPattern(0, 0);
-  engine.applyMotionBlur(math.pi / 4, 10);
-  engine.restore();
-  engine.fillText('Motion Blur', 200, 370);
+  show(ImageFilters.motion(source, math.pi / 4, 10), 'Motion Blur', 200, 250);
   
   // Custom Convolution - High Pass
-  engine.save();
-  engine.translate(350, 250);
-  engine.clipRect(0, 0, 100, 100);
-  drawTestPattern(0, 0);
   final highPass = [
-    [-1, -1, -1],
-    [-1,  9, -1],
-    [-1, -1, -1],
+    [-1.0, -1.0, -1.0],
+    [-1.0,  9.0, -1.0],
+    [-1.0, -1.0, -1.0],
   ];
-  engine.applyConvolution(highPass);
-  engine.restore();
-  engine.fillText('High Pass', 350, 370);
+  show(ImageFilters.convolve(source, highPass), 'High Pass', 350, 250);
   
   // Combined filters
-  engine.save();
-  engine.translate(500, 250);
-  engine.clipRect(0, 0, 100, 100);
-  drawTestPattern(0, 0);
-  engine.applyGaussianBlur(1.0);
-  engine.applySharpen(2.0);
-  engine.restore();
-  engine.fillText('Blur + Sharpen', 500, 370);
+  final blurred = ImageFilters.gaussian(source, 1.0);
+  show(ImageFilters.sharpen(blurred, 2.0), 'Blur + Sharpen', 500, 250);
   
-  await engine.saveToFile('filter_effects.png');
+  await engine.write('filter_effects.png');
   print('Filter effects saved');
 }
 ```
@@ -838,23 +862,36 @@ void main() async {
 Creates a functional analog clock visualization.
 
 ```dart
-import 'package:libgfx/libgfx.dart';
 import 'dart:math' as math;
+
+import 'package:libgfx/io/local_file_system.dart';
+import 'package:libgfx/libgfx.dart';
 
 void main() async {
   final now = DateTime.now();
-  final engine = GraphicsEngine(400, 400);
-  
+  final engine = GraphicsEngine(
+    400,
+    400,
+    filesystem: const LocalGraphicsFileSystem(),
+  );
+
+  // Load a font for the numbers
+  final font = await engine.loadFont('data/fonts/NotoSans-Regular.ttf');
+  if (font case Err(:final error)) {
+    print('Cannot load font: ${error.message}');
+    return;
+  }
+
   // Background
   final bgGradient = RadialGradient(
     center: Point(200, 200),
     radius: 200,
-    colors: [
-      const Color(0xFFF5F5F5),
-      const Color(0xFFE0E0E0),
+    stops: [
+      ColorStop(0.0, const Color(0xFFF5F5F5)),
+      ColorStop(1.0, const Color(0xFFE0E0E0)),
     ],
   );
-  engine.setFillPaint(bgGradient);
+  engine.fillStyle = bgGradient;
   engine.fillRect(0, 0, 400, 400);
   
   // Clock face
@@ -865,45 +902,45 @@ void main() async {
   final ringGradient = RadialGradient(
     center: Point(0, 0),
     radius: 150,
-    colors: [
-      const Color(0xFF37474F),
-      const Color(0xFF263238),
+    stops: [
+      ColorStop(0.0, const Color(0xFF37474F)),
+      ColorStop(1.0, const Color(0xFF263238)),
     ],
   );
-  engine.setFillPaint(ringGradient);
-  engine.fillCircle(0, 0, 150);
+  engine.fillStyle = ringGradient;
+  engine.fill(PathBuilder().circle(0, 0, 150).build());
   
   // Inner face
-  engine.setFillColor(const Color(0xFFECEFF1));
-  engine.fillCircle(0, 0, 140);
+  engine.fillStyle = const Color(0xFFECEFF1);
+  engine.fill(PathBuilder().circle(0, 0, 140).build());
   
   // Hour markers
   for (int i = 0; i < 12; i++) {
-    final angle = (i * 30 - 90) * math.pi / 180;
+    final angle = i * 30 * math.pi / 180;
     final isHour = i % 3 == 0;
     
     engine.save();
-    engine.rotate(angle + math.pi / 2);
+    engine.rotate(-angle);
     
     if (isHour) {
       // Large hour markers
-      engine.setFillColor(const Color(0xFF263238));
-      engine.fillRect(-2, -130, 4, 20);
+      engine.fillStyle = const Color(0xFF263238);
+      engine.fillRect(-2, 110, 4, 20);
       
-      // Hour numbers
+      // Hour numbers, inside the markers
       engine.save();
-      engine.translate(0, -105);
-      engine.rotate(-(angle + math.pi / 2));
-      engine.setFontSize(18);
-      engine.setTextAlign(TextAlign.center);
-      engine.setTextBaseline(TextBaseline.middle);
+      engine.translate(0, 92);
+      engine.rotate(angle);
+      engine.fontSize = 18;
+      engine.textAlign = TextAlign.center;
+      engine.textBaseline = TextBaseline.middle;
       final hour = i == 0 ? 12 : i;
       engine.fillText(hour.toString(), 0, 0);
       engine.restore();
     } else {
       // Small minute markers
-      engine.setFillColor(const Color(0xFF607D8B));
-      engine.fillRect(-1, -130, 2, 10);
+      engine.fillStyle = const Color(0xFF607D8B);
+      engine.fillRect(-1, 120, 2, 10);
     }
     
     engine.restore();
@@ -915,84 +952,85 @@ void main() async {
   final seconds = now.second;
   final milliseconds = now.millisecond;
   
-  final secondAngle = (seconds + milliseconds / 1000) * 6 - 90;
-  final minuteAngle = (minutes + seconds / 60) * 6 - 90;
-  final hourAngle = (hours + minutes / 60) * 30 - 90;
+  final secondAngle = (seconds + milliseconds / 1000) * 6;
+  final minuteAngle = (minutes + seconds / 60) * 6;
+  final hourAngle = (hours + minutes / 60) * 30;
   
   // Hour hand
   engine.save();
-  engine.rotate(hourAngle * math.pi / 180);
-  engine.setFillColor(const Color(0xFF263238));
+  engine.rotate(-hourAngle * math.pi / 180);
+  engine.fillStyle = const Color(0xFF263238);
   final hourHand = PathBuilder()
     ..moveTo(-8, 0)
-    ..lineTo(-3, -50)
-    ..lineTo(0, -60)
-    ..lineTo(3, -50)
+    ..lineTo(-3, 50)
+    ..lineTo(0, 60)
+    ..lineTo(3, 50)
     ..lineTo(8, 0)
-    ..lineTo(4, 15)
-    ..lineTo(-4, 15)
-    ..close();
+    ..lineTo(4, -15)
+    ..lineTo(-4, -15)
+    ..closePath();
   engine.fill(hourHand.build());
   engine.restore();
   
   // Minute hand
   engine.save();
-  engine.rotate(minuteAngle * math.pi / 180);
-  engine.setFillColor(const Color(0xFF37474F));
+  engine.rotate(-minuteAngle * math.pi / 180);
+  engine.fillStyle = const Color(0xFF37474F);
   final minuteHand = PathBuilder()
     ..moveTo(-6, 0)
-    ..lineTo(-2, -75)
-    ..lineTo(0, -85)
-    ..lineTo(2, -75)
+    ..lineTo(-2, 75)
+    ..lineTo(0, 85)
+    ..lineTo(2, 75)
     ..lineTo(6, 0)
-    ..lineTo(3, 15)
-    ..lineTo(-3, 15)
-    ..close();
+    ..lineTo(3, -15)
+    ..lineTo(-3, -15)
+    ..closePath();
   engine.fill(minuteHand.build());
   engine.restore();
   
   // Second hand
   engine.save();
-  engine.rotate(secondAngle * math.pi / 180);
-  engine.setFillColor(const Color(0xFFE53935));
-  engine.fillRect(-1, 20, 2, -115);
-  engine.fillCircle(0, -95, 4);
+  engine.rotate(-secondAngle * math.pi / 180);
+  engine.fillStyle = const Color(0xFFE53935);
+  engine.fillRect(-1, -20, 2, 115);
+  engine.fill(PathBuilder().circle(0, 95, 4).build());
   engine.restore();
   
   // Center cap
   final capGradient = RadialGradient(
     center: Point(0, 0),
     radius: 12,
-    colors: [
-      const Color(0xFF546E7A),
-      const Color(0xFF37474F),
+    stops: [
+      ColorStop(0.0, const Color(0xFF546E7A)),
+      ColorStop(1.0, const Color(0xFF37474F)),
     ],
   );
-  engine.setFillPaint(capGradient);
-  engine.fillCircle(0, 0, 12);
+  engine.fillStyle = capGradient;
+  engine.fill(PathBuilder().circle(0, 0, 12).build());
   
-  engine.setFillColor(const Color(0xFF263238));
-  engine.fillCircle(0, 0, 8);
+  engine.fillStyle = const Color(0xFF263238);
+  engine.fill(PathBuilder().circle(0, 0, 8).build());
   
   engine.restore();
   
   // Digital time display
-  engine.setFillColor(const Color(0xFF263238));
-  engine.setFontSize(24);
-  engine.setTextAlign(TextAlign.center);
+  engine.fillStyle = const Color(0xFF263238);
+  engine.fontSize = 24;
+  engine.textAlign = TextAlign.center;
+  engine.textBaseline = TextBaseline.alphabetic;
   final timeString = '${now.hour.toString().padLeft(2, '0')}:'
                     '${now.minute.toString().padLeft(2, '0')}:'
                     '${now.second.toString().padLeft(2, '0')}';
-  engine.fillText(timeString, 200, 320);
+  engine.fillText(timeString, 200, 150);
   
   // Date display
-  engine.setFontSize(16);
+  engine.fontSize = 16;
   final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   final dateString = '${months[now.month - 1]} ${now.day}, ${now.year}';
-  engine.fillText(dateString, 200, 345);
+  engine.fillText(dateString, 200, 128);
   
-  await engine.saveToFile('clock.png');
+  await engine.write('clock.png');
   print('Clock saved at ${timeString}');
 }
 ```
@@ -1002,28 +1040,39 @@ void main() async {
 Generates a recursive fractal tree pattern.
 
 ```dart
-import 'package:libgfx/libgfx.dart';
 import 'dart:math' as math;
 
+import 'package:libgfx/io/local_file_system.dart';
+import 'package:libgfx/libgfx.dart';
+
 void main() async {
-  final engine = GraphicsEngine(800, 600);
+  final engine = GraphicsEngine(
+    800,
+    600,
+    filesystem: const LocalGraphicsFileSystem(),
+  );
   
   // Sky gradient background
   final skyGradient = LinearGradient(
-    start: Point(0, 0),
-    end: Point(0, 600),
-    colors: [
-      const Color(0xFF87CEEB),
-      const Color(0xFFF0E68C),
+    start: Point(0, 600),
+    end: Point(0, 0),
+    stops: [
+      ColorStop(0.0, const Color(0xFF87CEEB)),
+      ColorStop(1.0, const Color(0xFFF0E68C)),
     ],
   );
-  engine.setFillPaint(skyGradient);
+  engine.fillStyle = skyGradient;
   engine.fillRect(0, 0, 800, 600);
   
   // Ground
-  engine.setFillColor(const Color(0xFF8B7355));
-  engine.fillRect(0, 500, 800, 100);
+  engine.fillStyle = const Color(0xFF8B7355);
+  engine.fillRect(0, 0, 800, 100);
   
+  // Strokes a straight line
+  void line(double x1, double y1, double x2, double y2) {
+    engine.stroke((PathBuilder()..moveTo(x1, y1)..lineTo(x2, y2)).build());
+  }
+
   // Recursive tree drawing function
   void drawBranch(double x, double y, double length, double angle, int depth) {
     if (depth == 0 || length < 2) return;
@@ -1040,18 +1089,18 @@ void main() async {
       19,
       255,
     );
-    engine.setStrokeColor(color);
+    engine.strokeStyle = color;
     
     // Thicker branches at the base
-    engine.setStrokeWidth(depth * 0.5);
+    engine.lineWidth = depth * 0.5;
     
     // Draw branch
-    engine.strokeLine(x, y, endX, endY);
+    line(x, y, endX, endY);
     
     // Add leaves at the tips
     if (depth <= 2) {
-      engine.setFillColor(const Color(0xFF228B22).withAlpha(150));
-      engine.fillCircle(endX, endY, 3);
+      engine.fillStyle = const Color(0x96228B22);
+      engine.fill(PathBuilder().circle(endX, endY, 3).build());
     }
     
     // Create child branches
@@ -1083,25 +1132,25 @@ void main() async {
   for (final tree in treePositions) {
     drawBranch(
       tree['x']!,
-      500,
+      100,
       80 * tree['size']!,
-      -math.pi / 2,
+      math.pi / 2,
       12,
     );
   }
   
   // Add some grass
-  engine.setStrokeColor(const Color(0xFF355E3B));
+  engine.strokeStyle = const Color(0xFF355E3B);
   final random = math.Random(42);
   for (int i = 0; i < 200; i++) {
     final x = random.nextDouble() * 800;
-    final y = 500 + random.nextDouble() * 100;
+    final y = 100 - random.nextDouble() * 100;
     final height = 5 + random.nextDouble() * 10;
-    engine.setStrokeWidth(1);
-    engine.strokeLine(x, y, x + random.nextDouble() * 4 - 2, y - height);
+    engine.lineWidth = 1;
+    line(x, y, x + random.nextDouble() * 4 - 2, y + height);
   }
   
-  await engine.saveToFile('fractal_tree.png');
+  await engine.write('fractal_tree.png');
   print('Fractal tree saved');
 }
 ```
@@ -1120,7 +1169,8 @@ To run any of these examples:
 These examples are designed to be modified and extended:
 
 - **Colors**: Change color values to create different palettes
-- **Sizes**: Adjust dimensions for different canvas sizes
+- **Sizes**: Adjust dimensions for different canvas sizes; for a high-DPI screen, create the engine at twice the size
+  and call `scale(2, 2)` before drawing, as the programs in `example/` do
 - **Parameters**: Modify algorithm parameters for different effects
 - **Combinations**: Mix techniques from different examples
 

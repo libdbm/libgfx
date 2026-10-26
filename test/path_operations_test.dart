@@ -1,5 +1,9 @@
+import 'dart:math';
+
 import 'package:libgfx/src/paths/path.dart';
+import 'package:libgfx/src/paths/path_operations.dart';
 import 'package:libgfx/src/point.dart';
+import 'package:libgfx/src/utils/curve_utils.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -85,7 +89,7 @@ void main() {
         ..lineTo(0.5, 1) // Extra point on edge
         ..lineTo(0, 1)
         ..lineTo(0, 0.5) // Extra point on edge
-        ..close();
+        ..closePath();
 
       final originalPath = builder.build();
       final simplifiedPath = originalPath.simplify(0.1);
@@ -107,14 +111,14 @@ void main() {
         ..lineTo(10, 0)
         ..lineTo(10, 10)
         ..lineTo(0, 10)
-        ..close();
+        ..closePath();
 
       final rect2 = PathBuilder()
         ..moveTo(5, 5)
         ..lineTo(15, 5)
         ..lineTo(15, 15)
         ..lineTo(5, 15)
-        ..close();
+        ..closePath();
 
       final path1 = rect1.build();
       final path2 = rect2.build();
@@ -136,14 +140,14 @@ void main() {
         ..lineTo(10, 0)
         ..lineTo(10, 10)
         ..lineTo(0, 10)
-        ..close();
+        ..closePath();
 
       final rect2 = PathBuilder()
         ..moveTo(5, 5)
         ..lineTo(15, 5)
         ..lineTo(15, 15)
         ..lineTo(5, 15)
-        ..close();
+        ..closePath();
 
       final path1 = rect1.build();
       final path2 = rect2.build();
@@ -161,14 +165,14 @@ void main() {
         ..lineTo(20, 0)
         ..lineTo(20, 20)
         ..lineTo(0, 20)
-        ..close();
+        ..closePath();
 
       final rect2 = PathBuilder()
         ..moveTo(5, 5)
         ..lineTo(15, 5)
         ..lineTo(15, 15)
         ..lineTo(5, 15)
-        ..close();
+        ..closePath();
 
       final path1 = rect1.build();
       final path2 = rect2.build();
@@ -185,14 +189,14 @@ void main() {
         ..lineTo(5, 0)
         ..lineTo(5, 5)
         ..lineTo(0, 5)
-        ..close();
+        ..closePath();
 
       final rect2 = PathBuilder()
         ..moveTo(10, 10)
         ..lineTo(15, 10)
         ..lineTo(15, 15)
         ..lineTo(10, 15)
-        ..close();
+        ..closePath();
 
       final path1 = rect1.build();
       final path2 = rect2.build();
@@ -206,7 +210,7 @@ void main() {
       // Create a path with cubic curves
       final builder = PathBuilder()
         ..moveTo(0, 0)
-        ..curveTo(10, 0, 20, 10, 30, 10);
+        ..bezierCurveTo(10, 0, 20, 10, 30, 10);
 
       final originalPath = builder.build();
       final simplifiedPath = originalPath.simplify(1.0);
@@ -231,7 +235,7 @@ void main() {
         ..lineTo(10, 0)
         ..lineTo(10, 10)
         ..lineTo(0, 10)
-        ..close();
+        ..closePath();
       final rectPath = rectBuilder.build();
 
       // Operations with empty paths should handle gracefully
@@ -274,13 +278,13 @@ void main() {
         ..lineTo(10, 0)
         ..lineTo(10, 10)
         ..lineTo(0, 10)
-        ..close()
+        ..closePath()
         // Second subpath
         ..moveTo(20, 20)
-        ..curveTo(25, 15, 35, 15, 40, 20)
+        ..bezierCurveTo(25, 15, 35, 15, 40, 20)
         ..lineTo(40, 30)
         ..lineTo(20, 30)
-        ..close();
+        ..closePath();
       final complexPath = complexBuilder.build();
 
       // Test that operations work with complex paths
@@ -293,7 +297,7 @@ void main() {
         ..lineTo(15, 5)
         ..lineTo(15, 15)
         ..lineTo(5, 15)
-        ..close();
+        ..closePath();
       final otherPath = otherBuilder.build();
 
       final union = complexPath.union(otherPath);
@@ -305,4 +309,109 @@ void main() {
       expect(difference, isNotNull);
     });
   });
+
+  group('Offset (experimental)', () {
+    test('a line is stroked to the distance on both sides', () {
+      final line =
+          (PathBuilder()
+                ..moveTo(0, 0)
+                ..lineTo(100, 0))
+              .build();
+      final result = PathOperations.offset(line, 5);
+      expect([
+        result.bounds.left,
+        result.bounds.top,
+        result.bounds.right,
+        result.bounds.bottom,
+      ], equals([0, -5, 100, 5]));
+    });
+
+    test('the sign of the distance is ignored', () {
+      final square =
+          (PathBuilder()
+                ..moveTo(0, 0)
+                ..lineTo(100, 0)
+                ..lineTo(100, 100)
+                ..lineTo(0, 100)
+                ..closePath())
+              .build();
+      for (final distance in [5.0, -5.0]) {
+        final result = PathOperations.offset(square, distance);
+        expect(
+          [
+            result.bounds.left,
+            result.bounds.top,
+            result.bounds.right,
+            result.bounds.bottom,
+          ],
+          equals([-5, -5, 105, 105]),
+          reason: 'distance $distance',
+        );
+      }
+    });
+  });
+
+  group('Douglas-Peucker simplification', () {
+    test('matches the recursive reference on random polylines', () {
+      final random = Random(7);
+      for (var trial = 0; trial < 200; trial++) {
+        final count = 2 + random.nextInt(60);
+        final points = [
+          for (var i = 0; i < count; i++)
+            Point(i * 3.0 + random.nextDouble(), random.nextDouble() * 20),
+        ];
+        final builder = PathBuilder()..moveTo(points[0].x, points[0].y);
+        for (final point in points.skip(1)) {
+          builder.lineTo(point.x, point.y);
+        }
+        final path = builder.build();
+        for (final tolerance in [0.1, 1.0, 4.0, 10.0]) {
+          final simplified = path.simplify(tolerance);
+          final expected = _reference(points, tolerance);
+          expect(
+            [
+              for (final command in simplified.commands) command.points[0],
+            ].map((point) => (point.x, point.y)).toList(),
+            equals(expected.map((point) => (point.x, point.y)).toList()),
+            reason: 'trial $trial, tolerance $tolerance',
+          );
+        }
+      }
+    });
+
+    test('a long polyline simplifies without deep recursion', () {
+      // Each split keeps one point near the start, the worst case for
+      // recursion depth; recursing on sublists overflowed the stack from
+      // about 15000 points
+      final builder = PathBuilder()..moveTo(0, 0);
+      for (var i = 1; i <= 20000; i++) {
+        builder.lineTo(i.toDouble(), i.isOdd ? 1 : 0);
+      }
+      final simplified = builder.build().simplify(0.5);
+      expect(simplified.commands, hasLength(20001));
+    });
+  });
+}
+
+/// The Douglas-Peucker algorithm as it was written with sublist copies, as
+/// the reference for the index-range version.
+List<Point> _reference(final List<Point> points, final double tolerance) {
+  if (points.length <= 2) return points;
+  var maxDistance = 0.0;
+  var maxIndex = 0;
+  for (var i = 1; i < points.length - 1; i++) {
+    final distance = CurveUtils.distanceToSegment(
+      points[i],
+      points.first,
+      points.last,
+    );
+    if (distance > maxDistance) {
+      maxDistance = distance;
+      maxIndex = i;
+    }
+  }
+  if (maxDistance <= tolerance) return [points.first, points.last];
+  final left = _reference(points.sublist(0, maxIndex + 1), tolerance);
+  final right = _reference(points.sublist(maxIndex), tolerance);
+  return [...left.sublist(0, left.length - 1), ...right];
 }

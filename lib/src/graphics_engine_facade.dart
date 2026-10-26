@@ -1,22 +1,25 @@
+import 'dart:math' show max, min;
 import 'dart:typed_data';
 
 import 'image/bitmap.dart';
 import 'image/codecs/bmp_codec.dart';
 import 'image/codecs/p3_codec.dart';
 import 'image/codecs/p6_codec.dart';
-import 'clipping/clip_region.dart';
 import 'color/color.dart';
-import 'color/color_utils.dart';
 import 'fonts/font.dart';
 import 'fonts/ttf/ttf_font.dart';
 import 'graphics_context.dart';
 import 'graphics_state.dart';
 import 'image/codecs/png_codec.dart';
+import 'image/image_data.dart';
+import 'image/image_codec.dart';
+import 'image/image_renderer.dart' show ImageFilter;
+import 'limits.dart';
+import 'result.dart';
 import 'matrix.dart';
 import 'paint.dart'
     show
         Paint,
-        SolidPaint,
         LinearGradient,
         RadialGradient,
         ConicalGradient,
@@ -25,9 +28,11 @@ import 'paint.dart'
 import 'paths/path.dart';
 import 'point.dart';
 import 'rasterize/rasterizer.dart';
+import 'rectangle.dart';
 import 'text/text_engine.dart';
-import 'text/text_types.dart' show TextAlign, TextBaseline, TextMetrics;
-import 'paths/path_utils.dart';
+import 'text/text_rendering.dart';
+import 'text/text_types.dart'
+    show TextAlign, TextBaseline, TextDirection, TextMetrics;
 import 'io/file_system.dart';
 
 /// A simple facade for the entire graphics engine.
@@ -37,8 +42,12 @@ import 'io/file_system.dart';
 class GraphicsEngine {
   late final Bitmap canvas;
   late final GraphicsContext _context;
-  late final TextEngine _textEngine;
+  late final TextEngine _engine;
   GraphicsFileSystem? _filesystem;
+
+  /// Sequence number of the latest font request; a slower earlier request
+  /// must not replace the font chosen by a newer one.
+  int _request = 0;
 
   /// Creates a new graphics engine with a canvas of the specified size.
   /// Optionally accepts a custom rasterizer implementation.
@@ -47,22 +56,25 @@ class GraphicsEngine {
     int height, {
     Rasterizer? rasterizer,
     GraphicsFileSystem? filesystem,
+    Limits limits = const Limits(),
   }) : this.withCanvas(
          Bitmap(width, height),
          rasterizer: rasterizer,
          filesystem: filesystem,
+         limits: limits,
        );
 
   /// Creates a new graphics engine using a bitmap as a canvas
   /// Optionally accepts a custom rasterizer implementation.
   GraphicsEngine.withCanvas(
-    Bitmap bitmapCanvas, {
+    final Bitmap bitmap, {
     Rasterizer? rasterizer,
     GraphicsFileSystem? filesystem,
+    Limits limits = const Limits(),
   }) {
-    canvas = bitmapCanvas;
-    _context = GraphicsContext(canvas, rasterizer: rasterizer);
-    _textEngine = TextEngine();
+    canvas = bitmap;
+    _context = GraphicsContext(canvas, rasterizer: rasterizer, limits: limits);
+    _engine = TextEngine();
     _filesystem = filesystem;
   }
 
@@ -73,30 +85,20 @@ class GraphicsEngine {
     _filesystem = value;
   }
 
-  /// Sets the current path to be used as a clipping mask.
-  void clip(Path path) {
-    _context.clip(path);
+  /// Intersects the clip with [path], using [rule] to decide which areas
+  /// are inside (non-zero by default, as W3C canvas `clip` does).
+  void clip(final Path path, {final FillRule rule = FillRule.nonZero}) {
+    _context.clip(path, rule: rule);
   }
 
-  /// Sets a rectangular clipping region.
-  void clipRect(double x, double y, double width, double height) {
-    clip(createRectanglePath(x, y, width, height));
-  }
-
-  /// Sets the current path to be used as a clipping mask with a specific fill rule.
-  ///
-  /// The fill rule determines how the interior of the path is calculated:
-  /// - [FillRule.evenOdd]: Alternating fill (default for most graphics systems)
-  /// - [FillRule.nonZero]: Non-zero winding rule
-  void clipWithFillRule(Path path, {FillRule fillRule = FillRule.evenOdd}) {
-    final advancedClip = ClipRegion.fromPath(
-      path,
-      _context.state.transform,
-      canvas.width,
-      canvas.height,
-      fillRule: fillRule,
-    );
-    _context.clipWithAdvancedRegion(advancedClip);
+  /// Intersects the clip with a rectangle.
+  void clipRect(
+    final double x,
+    final double y,
+    final double width,
+    final double height,
+  ) {
+    clip(PathBuilder().rect(x, y, width, height).build());
   }
 
   /// Sets the transformation matrix for the graphics engine
@@ -147,55 +149,30 @@ class GraphicsEngine {
     _context.restore();
   }
 
-  /// Sets the current fill paint
-  void setFillPaint(Paint paint) {
-    _context.state.fillPaint = paint;
-  }
+  /// The paint used by fills; a [Color] paints solid
+  Paint get fillStyle => _context.state.fillPaint;
+  set fillStyle(final Paint paint) => _context.state.fillPaint = paint;
 
-  /// Sets the fill color
-  void setFillColor(Color color) {
-    setFillPaint(SolidPaint(color));
-  }
+  /// The paint used by strokes; a [Color] paints solid
+  Paint get strokeStyle => _context.state.strokePaint;
+  set strokeStyle(final Paint paint) => _context.state.strokePaint = paint;
 
-  /// Sets the fill style using hex color string (e.g., "#FF0000" or "#FF0000FF")
-  void setFillStyle(String style) {
-    setFillColor(ColorUtils.parseHexColor(style));
-  }
+  /// The stroke width
+  double get lineWidth => _context.state.strokeWidth;
+  set lineWidth(final double width) => _context.state.strokeWidth = width;
 
-  /// Sets the current stroke paint
-  void setStrokePaint(Paint paint) {
-    _context.state.strokePaint = paint;
-  }
+  /// The shape at the ends of open strokes
+  LineCap get lineCap => _context.state.lineCap;
+  set lineCap(final LineCap cap) => _context.state.lineCap = cap;
 
-  /// Sets the stroke color
-  void setStrokeColor(Color color) {
-    setStrokePaint(SolidPaint(color));
-  }
+  /// The shape where stroke segments meet
+  LineJoin get lineJoin => _context.state.lineJoin;
+  set lineJoin(final LineJoin join) => _context.state.lineJoin = join;
 
-  /// Sets the stroke style using hex color string (e.g., "#FF0000" or "#FF0000FF")
-  void setStrokeStyle(String style) {
-    setStrokeColor(ColorUtils.parseHexColor(style));
-  }
-
-  /// Sets the line width for stroking
-  void setLineWidth(double width) {
-    _context.state.strokeWidth = width;
-  }
-
-  /// Sets the line cap style
-  void setLineCap(LineCap cap) {
-    _context.state.lineCap = cap;
-  }
-
-  /// Sets the line join style
-  void setLineJoin(LineJoin join) {
-    _context.state.lineJoin = join;
-  }
-
-  /// Sets the miter limit for line joins
-  void setMiterLimit(double limit) {
-    _context.state.miterLimit = limit;
-  }
+  /// The miter length, in stroke widths, beyond which a miter join is
+  /// drawn as a bevel
+  double get miterLimit => _context.state.miterLimit;
+  set miterLimit(final double limit) => _context.state.miterLimit = limit;
 
   /// Sets the dash pattern for stroking
   ///
@@ -208,19 +185,26 @@ class GraphicsEngine {
   // Note: Dash offset is not currently supported in the underlying implementation
   // Future versions may add this feature to the StrokeState and Dasher classes
 
-  /// Sets the global alpha (opacity) value
-  void setGlobalAlpha(double alpha) {
-    _context.state.globalAlpha = alpha;
-  }
+  /// The opacity applied to everything drawn, from 0 to 1
+  double get globalAlpha => _context.state.globalAlpha;
+  set globalAlpha(final double alpha) => _context.state.globalAlpha = alpha;
 
-  /// Sets the global composite operation (blend mode)
-  void setGlobalCompositeOperation(BlendMode mode) {
-    _context.state.blendMode = mode;
-  }
+  /// The blend mode used to composite what is drawn
+  BlendMode get globalCompositeOperation => _context.state.blendMode;
+  set globalCompositeOperation(final BlendMode mode) =>
+      _context.state.blendMode = mode;
 
-  /// Fills the given path with the current fill style
-  void fill(Path path) {
-    _context.fill(path);
+  /// Fills the given path with the current fill style, using [rule] to
+  /// decide which areas are inside (non-zero by default). With [text], the
+  /// path is drawn as [fillText] draws text, with partly covered pixels
+  /// darkened unless [textRendering] is [TextRendering.geometricPrecision];
+  /// use it for glyph outlines from [TextRenderer] or [Font.path].
+  void fill(
+    final Path path, {
+    final FillRule rule = FillRule.nonZero,
+    final bool text = false,
+  }) {
+    _context.fill(path, rule: rule, text: text && _legible);
   }
 
   /// Strokes the given path with the current stroke style
@@ -230,94 +214,23 @@ class GraphicsEngine {
 
   /// Fills a rectangle with the current fill style
   void fillRect(double x, double y, double width, double height) {
-    fill(createRectanglePath(x, y, width, height));
+    fill(PathBuilder().rect(x, y, width, height).build());
   }
 
   /// Strokes a rectangle with the current stroke style
   void strokeRect(double x, double y, double width, double height) {
-    stroke(createRectanglePath(x, y, width, height));
+    stroke(PathBuilder().rect(x, y, width, height).build());
   }
 
   /// Clears a rectangular area to transparent
   void clearRect(double x, double y, double width, double height) {
     save();
-    setGlobalCompositeOperation(BlendMode.clear);
-    fillRect(x, y, width, height);
-    restore();
-  }
-
-  /// Fills a rounded rectangle
-  void fillRoundRect(
-    double x,
-    double y,
-    double width,
-    double height,
-    double radius,
-  ) {
-    fill(createRoundedRectanglePath(x, y, width, height, radius));
-  }
-
-  /// Strokes a rounded rectangle
-  void strokeRoundRect(
-    double x,
-    double y,
-    double width,
-    double height,
-    double radius,
-  ) {
-    stroke(createRoundedRectanglePath(x, y, width, height, radius));
-  }
-
-  /// Fills a circle
-  void fillCircle(double cx, double cy, double radius) {
-    fill(createCirclePath(cx, cy, radius));
-  }
-
-  /// Strokes a circle
-  void strokeCircle(double cx, double cy, double radius) {
-    stroke(createCirclePath(cx, cy, radius));
-  }
-
-  /// Fills an ellipse
-  void fillEllipse(double cx, double cy, double rx, double ry) {
-    fill(createEllipsePath(cx, cy, rx, ry));
-  }
-
-  /// Strokes an ellipse
-  void strokeEllipse(double cx, double cy, double rx, double ry) {
-    stroke(createEllipsePath(cx, cy, rx, ry));
-  }
-
-  /// Fills a polygon
-  void fillPolygon(double cx, double cy, double radius, int sides) {
-    fill(createPolygonPath(cx, cy, radius, sides));
-  }
-
-  /// Strokes a polygon
-  void strokePolygon(double cx, double cy, double radius, int sides) {
-    stroke(createPolygonPath(cx, cy, radius, sides));
-  }
-
-  /// Fills a star
-  void fillStar(
-    double cx,
-    double cy,
-    double outerRadius,
-    double innerRadius,
-    int points,
-  ) {
-    fill(createStarPath(cx, cy, outerRadius, innerRadius, points));
-  }
-
-  /// Strokes a star
-  void strokeStar(
-    double cx,
-    double cy,
-    double outerRadius,
-    double innerRadius,
-    int points,
-  ) {
-    stroke(createStarPath(cx, cy, outerRadius, innerRadius, points));
+    try {
+      globalCompositeOperation = BlendMode.clear;
+      fillRect(x, y, width, height);
+    } finally {
+      restore();
+    }
   }
 
   /// Creates a linear gradient paint
@@ -328,37 +241,42 @@ class GraphicsEngine {
     double y1,
   ) {
     return LinearGradient(
-      startPoint: Point(x0, y0),
-      endPoint: Point(x1, y1),
-      stops: [], // Populate using gradient.addColorStop(...)
+      start: Point(x0, y0),
+      end: Point(x1, y1),
+      stops: const [], // Add stops with gradient.addColorStop(...)
     );
   }
 
   /// Creates a radial gradient paint
   RadialGradient createRadialGradient(
-    double cx0,
-    double cy0,
+    final double x0,
+    final double y0,
     double r0,
-    double cx1,
-    double cy1,
+    final double x1,
+    final double y1,
     double r1,
   ) {
     // RadialGradient only supports a single center and radius
     // Using the outer circle parameters
     return RadialGradient(
-      center: Point(cx1, cy1),
+      center: Point(x1, y1),
       radius: r1,
-      stops: [], // Populate using gradient.addColorStop(...)
-      focal: r0 > 0 ? Point(cx0, cy0) : null,
+      stops: const [], // Add stops with gradient.addColorStop(...)
+      focal: r0 > 0 ? Point(x0, y0) : null,
     );
   }
 
-  /// Creates a conic gradient paint
-  ConicalGradient createConicGradient(double cx, double cy, double angle) {
+  /// Creates a conic gradient starting at [startAngle] around (x, y), with
+  /// the W3C canvas argument order
+  ConicalGradient createConicGradient(
+    final double startAngle,
+    final double x,
+    final double y,
+  ) {
     return ConicalGradient(
-      center: Point(cx, cy),
-      startAngle: angle,
-      stops: [], // Populate using gradient.addColorStop(...)
+      center: Point(x, y),
+      startAngle: startAngle,
+      stops: const [], // Add stops with gradient.addColorStop(...)
     );
   }
 
@@ -371,27 +289,28 @@ class GraphicsEngine {
     return PatternPaint(pattern: image, repeat: repeat, transform: transform);
   }
 
-  /// Saves the canvas, auto-detecting format from [filename] when possible.
-  Future<void> saveToFile(String filename, {String? format}) async {
-    final fs = _filesystem;
-    if (fs == null) {
+  /// Writes the canvas to [path], detecting the format from its extension
+  /// unless [format] is given.
+  Future<void> write(final String path, {final String? format}) async {
+    final system = _filesystem;
+    if (system == null) {
       throw UnsupportedError(
-        'No GraphicsFileSystem configured. Attach one via the constructor or the filesystem setter before calling saveToFile.',
+        'No GraphicsFileSystem configured. Attach one via the constructor or the filesystem setter before calling write.',
       );
     }
 
-    final targetFormat = format ?? _inferFormatFromFilename(filename) ?? 'p6';
-    final bytes = saveImageToBytes(canvas, targetFormat);
-    await fs.writeFile(filename, bytes);
+    final bytes = encode(canvas, format ?? _format(path) ?? 'p6');
+    await system.write(path, bytes);
   }
 
-  String? _inferFormatFromFilename(String filename) {
-    final dotIndex = filename.lastIndexOf('.');
-    if (dotIndex == -1 || dotIndex == filename.length - 1) {
+  /// The format named by the extension of [path], or null
+  String? _format(final String path) {
+    final dot = path.lastIndexOf('.');
+    if (dot == -1 || dot == path.length - 1) {
       return null;
     }
 
-    final extension = filename.substring(dotIndex + 1).toLowerCase();
+    final extension = path.substring(dot + 1).toLowerCase();
     switch (extension) {
       case 'png':
       case 'bmp':
@@ -405,184 +324,223 @@ class GraphicsEngine {
     }
   }
 
-  /// Gets the canvas bitmap data as bytes
-  Uint8List getImageData() {
-    return canvas.pixels.buffer.asUint8List();
+  /// A copy of the canvas pixels in the [width] by [height] rectangle at
+  /// (x, y), in bitmap coordinates (from the top left, ignoring the
+  /// transform), as W3C canvas `getImageData` returns them; pixels outside
+  /// the canvas are transparent black
+  ImageData getImageData(
+    final int x,
+    final int y,
+    final int width,
+    final int height,
+  ) {
+    final image = ImageData(width, height);
+    final data = image.data;
+    for (var row = 0; row < height; row++) {
+      for (var column = 0; column < width; column++) {
+        final color = canvas.pixel(x + column, y + row);
+        final index = (row * width + column) * 4;
+        data[index] = color.red;
+        data[index + 1] = color.green;
+        data[index + 2] = color.blue;
+        data[index + 3] = color.alpha;
+      }
+    }
+    return image;
   }
 
-  /// Puts image data onto the canvas
+  /// Writes the pixels of [image] to the canvas with its top left corner at
+  /// (dx, dy), in bitmap coordinates, as W3C canvas `putImageData` does:
+  /// pixels are replaced, ignoring the transform, clip, alpha and
+  /// composite operation. Only the dirty rectangle of [image] is written,
+  /// at its own offset from (dx, dy); a negative size extends it left or up
   void putImageData(
-    Uint8List data,
-    int dx,
-    int dy, [
-    int? dirtyX,
-    int? dirtyY,
-    int? dirtyWidth,
-    int? dirtyHeight,
+    final ImageData image,
+    final int dx,
+    final int dy, [
+    final int dirtyX = 0,
+    final int dirtyY = 0,
+    final int? dirtyWidth,
+    final int? dirtyHeight,
   ]) {
-    // Simplified implementation - copy data to canvas
-    final srcX = dirtyX ?? 0;
-    final srcY = dirtyY ?? 0;
-    final width = dirtyWidth ?? canvas.width;
-    final height = dirtyHeight ?? canvas.height;
+    final width = dirtyWidth ?? image.width;
+    final height = dirtyHeight ?? image.height;
+    final left = max(0, width < 0 ? dirtyX + width : dirtyX);
+    final top = max(0, height < 0 ? dirtyY + height : dirtyY);
+    final right = min(image.width, width < 0 ? dirtyX : dirtyX + width);
+    final bottom = min(image.height, height < 0 ? dirtyY : dirtyY + height);
 
-    for (int y = 0; y < height; y++) {
-      for (int x = 0; x < width; x++) {
-        if (dx + x >= 0 &&
-            dx + x < canvas.width &&
-            dy + y >= 0 &&
-            dy + y < canvas.height) {
-          final srcIndex = ((srcY + y) * canvas.width + (srcX + x)) * 4;
-          if (srcIndex + 3 < data.length) {
-            final color = Color.fromRGBA(
-              data[srcIndex],
-              data[srcIndex + 1],
-              data[srcIndex + 2],
-              data[srcIndex + 3],
-            );
-            canvas.setPixel(dx + x, dy + y, color);
-          }
-        }
+    final data = image.data;
+    for (var row = top; row < bottom; row++) {
+      for (var column = left; column < right; column++) {
+        final index = (row * image.width + column) * 4;
+        canvas.plot(
+          dx + column,
+          dy + row,
+          Color.fromRGBA(
+            data[index],
+            data[index + 1],
+            data[index + 2],
+            data[index + 3],
+          ),
+        );
       }
     }
   }
 
-  /// Draws an image onto the canvas
-  void drawImage(Bitmap image, double dx, double dy) {
-    _context.drawImage(image, dx, dy);
-  }
-
-  /// Draws a scaled image onto the canvas
-  void drawImageScaled(
-    Bitmap image,
-    double dx,
-    double dy,
-    double dw,
-    double dh,
-  ) {
-    _context.drawImageScaled(image, dx, dy, dw, dh);
-  }
-
-  /// Draws a portion of an image onto the canvas
-  void drawImageRect(
-    Bitmap image,
-    double sx,
-    double sy,
-    double sw,
-    double sh,
-    double dx,
-    double dy,
-    double dw,
-    double dh,
-  ) {
-    _context.drawImageRect(
-      image,
-      sx,
-      sy,
-      sw,
-      sh,
-      dx,
-      dy,
-      dw,
-      dh,
-    );
+  /// Draws [image] with its corner at (dx, dy), scaled to [width] by
+  /// [height] when given, as the W3C canvas `drawImage` forms do. [source]
+  /// selects part of the image; [filter] samples scaled or transformed
+  /// images (nearest neighbour by default).
+  void drawImage(
+    final Bitmap image,
+    final double dx,
+    final double dy, {
+    final double? width,
+    final double? height,
+    final Rectangle<double>? source,
+    final ImageFilter filter = ImageFilter.nearest,
+  }) {
+    if (source != null) {
+      _context.drawImageRect(
+        image,
+        source.left,
+        source.top,
+        source.width,
+        source.height,
+        dx,
+        dy,
+        width ?? source.width,
+        height ?? source.height,
+        filter: filter,
+      );
+    } else if (width != null || height != null) {
+      _context.drawImageScaled(
+        image,
+        dx,
+        dy,
+        width ?? image.width.toDouble(),
+        height ?? image.height.toDouble(),
+        filter: filter,
+      );
+    } else {
+      _context.drawImage(image, dx, dy, filter: filter);
+    }
   }
 
   // ============================================================================
   // Text Rendering
   // ============================================================================
 
-  /// Sets the current font from a file
-  Future<void> setFontFromFile(String fontPath) async {
-    final fs = _filesystem;
-    if (fs == null) {
+  /// Sets the current font from a file. On failure the current font is
+  /// kept. If another font request is made before this one completes, this
+  /// result is returned but does not replace the newer font.
+  Future<Result<TTFFont, ErrorDetails>> loadFont(final String path) async {
+    final system = _filesystem;
+    if (system == null) {
       throw UnsupportedError(
-        'No GraphicsFileSystem configured. Attach one via the constructor or the filesystem setter before calling setFontFromFile.',
+        'No GraphicsFileSystem configured. Attach one via the constructor or the filesystem setter before calling loadFont.',
       );
     }
 
-    try {
-      final bytes = await fs.readFile(fontPath);
-      if (bytes != null) {
-        setFontFromBytes(bytes);
-      } else {
-        _textEngine.font = null;
-      }
-    } catch (_) {
-      _textEngine.font = null;
+    final request = ++_request;
+    final result = await TTFFont.load(
+      path,
+      filesystem: system,
+      limits: _context.limits,
+    );
+    if (result case Ok(:final value) when request == _request) {
+      _context.state.font = value;
     }
+    return result;
   }
 
-  /// Sets the current font from bytes
-  void setFontFromBytes(Uint8List bytes) {
-    _textEngine.font = TTFFont.fromBytes(bytes);
+  /// Sets the current font from bytes. On failure the current font is kept.
+  Result<TTFFont, ErrorDetails> readFont(final Uint8List bytes) {
+    ++_request;
+    final result = TTFFont.fromBytes(bytes, limits: _context.limits);
+    if (result case Ok(:final value)) {
+      _context.state.font = value;
+    }
+    return result;
   }
 
-  /// Sets the font size in pixels
-  void setFontSize(double size) {
-    _textEngine.fontSize = size;
-  }
+  /// The font size in pixels
+  double get fontSize => _context.state.fontSize;
+  set fontSize(final double size) => _context.state.fontSize = size;
 
-  /// Sets the text alignment (left, center, right)
-  void setTextAlign(TextAlign align) {
-    _textEngine.textAlign = align;
-  }
+  /// The horizontal alignment of text relative to its x position
+  TextAlign get textAlign => _context.state.textAlign;
+  set textAlign(final TextAlign align) => _context.state.textAlign = align;
 
-  /// Sets the text baseline (alphabetic, top, middle, bottom)
-  void setTextBaseline(TextBaseline baseline) {
-    _textEngine.textBaseline = baseline;
-  }
+  /// The vertical alignment of text relative to its y position
+  TextBaseline get textBaseline => _context.state.textBaseline;
+  set textBaseline(final TextBaseline baseline) =>
+      _context.state.textBaseline = baseline;
+
+  /// The direction of text, as W3C canvas `direction`: the paragraph
+  /// direction for ordering right-to-left text, and the side that
+  /// [TextAlign.start] and [TextAlign.end] mean. Left to right by default.
+  TextDirection get direction => _context.state.direction;
+  set direction(final TextDirection direction) =>
+      _context.state.direction = direction;
 
   /// Fills text at the specified position using the current fill style
   void fillText(String text, double x, double y) {
-    final path = _textEngine.generateTextPath(text, x, y);
-    fill(path);
+    final path = _text.path(text, x, y);
+    _context.fill(path, text: _legible);
   }
 
   /// Strokes text at the specified position using the current stroke style
   void strokeText(String text, double x, double y) {
-    final path = _textEngine.generateTextPath(text, x, y);
-    stroke(path);
+    final path = _text.path(text, x, y);
+    _context.stroke(path, text: _legible);
   }
+
+  /// Whether text takes the contrast curve: every [textRendering] but
+  /// [TextRendering.geometricPrecision]
+  bool get _legible =>
+      _context.state.textRendering != TextRendering.geometricPrecision;
+
+  /// How text is rasterized, as W3C canvas `textRendering`
+  TextRendering get textRendering => _context.state.textRendering;
+  set textRendering(final TextRendering rendering) =>
+      _context.state.textRendering = rendering;
 
   /// Uses text as a clipping path
   void clipText(String text, double x, double y) {
-    final path = _textEngine.generateTextPath(text, x, y);
+    final path = _text.path(text, x, y);
     clip(path);
-  }
-
-  /// Fills and strokes text at the specified position
-  void fillAndStrokeText(String text, double x, double y) {
-    final path = _textEngine.generateTextPath(text, x, y);
-    fill(path);
-    stroke(path);
   }
 
   /// Measures text and returns metrics
   TextMetrics measureText(String text) {
-    return _textEngine.measureText(text);
+    return _text.measure(text);
   }
 
-  /// Gets the current font
-  Font? get currentFont => _textEngine.font;
-
-  /// Gets the current font size
-  double get fontSize => _textEngine.fontSize;
-
-  /// Gets the current text alignment
-  TextAlign get textAlign => _textEngine.textAlign;
-
-  /// Gets the current text baseline
-  TextBaseline get textBaseline => _textEngine.textBaseline;
-
-  /// Get a pixel color at the specified coordinates
-  Color getPixel(int x, int y) {
-    return canvas.getPixel(x, y);
+  /// The current font, or null before one is set. Setting it cancels the
+  /// result of a pending [loadFont].
+  Font? get font => _text.font;
+  set font(final Font? value) {
+    ++_request;
+    _context.state.font = value;
   }
 
-  /// Set a pixel color at the specified coordinates
-  void setPixel(int x, int y, Color color) {
-    canvas.setPixel(x, y, color);
+  /// The text engine, configured from the text settings of the current
+  /// state, which [save] and [restore] cover.
+  TextEngine get _text => _engine
+    ..font = _context.state.font
+    ..fontSize = _context.state.fontSize
+    ..textAlign = _context.state.textAlign
+    ..textBaseline = _context.state.textBaseline
+    ..direction = _context.state.direction;
+
+  /// The color of the canvas pixel at (x, y), in bitmap coordinates
+  Color pixel(final int x, final int y) => canvas.pixel(x, y);
+
+  /// Sets the canvas pixel at (x, y), in bitmap coordinates, to [color]
+  void plot(final int x, final int y, final Color color) {
+    canvas.plot(x, y, color);
   }
 
   /// Get the canvas width
@@ -596,13 +554,13 @@ class GraphicsEngine {
     canvas.clear(color);
   }
 
-  /// Create a new bitmap from the current canvas
-  Bitmap toBitmap() {
+  /// A copy of the canvas
+  Bitmap snapshot() {
     // Create a copy of the bitmap
     final copy = Bitmap(canvas.width, canvas.height);
     for (int y = 0; y < canvas.height; y++) {
       for (int x = 0; x < canvas.width; x++) {
-        copy.setPixel(x, y, canvas.getPixel(x, y));
+        copy.plot(x, y, canvas.pixel(x, y));
       }
     }
     return copy;
@@ -612,115 +570,19 @@ class GraphicsEngine {
   GraphicsContext get context => _context;
 
   // ============================================================================
-  // Path Creation Utilities
-  // ============================================================================
-
-  /// Create a rectangle path
-  static Path createRectanglePath(
-    double x,
-    double y,
-    double width,
-    double height,
-  ) {
-    return PathUtils.createRectangle(x, y, width, height);
-  }
-
-  /// Create a rounded rectangle path
-  static Path createRoundedRectanglePath(
-    double x,
-    double y,
-    double width,
-    double height,
-    double radius,
-  ) {
-    return PathUtils.createRoundedRectangle(x, y, width, height, radius);
-  }
-
-  /// Create a circle path
-  static Path createCirclePath(double cx, double cy, double radius) {
-    return PathUtils.createCircle(cx, cy, radius);
-  }
-
-  /// Create an ellipse path
-  static Path createEllipsePath(double cx, double cy, double rx, double ry) {
-    return PathUtils.createEllipse(cx, cy, rx, ry);
-  }
-
-  /// Create a regular polygon path
-  static Path createPolygonPath(
-    double cx,
-    double cy,
-    double radius,
-    int sides,
-  ) {
-    return PathUtils.createPolygon(cx, cy, radius, sides);
-  }
-
-  /// Create a star path
-  static Path createStarPath(
-    double cx,
-    double cy,
-    double outerRadius,
-    double innerRadius,
-    int points,
-  ) {
-    return PathUtils.createStar(cx, cy, outerRadius, innerRadius, points);
-  }
-
-  /// Create an arc path
-  static Path createArcPath(
-    double cx,
-    double cy,
-    double radius,
-    double startAngle,
-    double endAngle,
-    bool clockwise,
-  ) {
-    return PathUtils.createArc(cx, cy, radius, startAngle, endAngle, clockwise);
-  }
-
-  // ============================================================================
   // Image Loading/Saving
   // ============================================================================
 
-  /// Load an image from bytes (supports BMP, P3/P6 PPM formats)
-  static Bitmap loadImageFromBytes(Uint8List bytes, {String? format}) {
-    // Try to auto-detect format if not specified
-    if (format == null) {
-      if (bytes.length >= 2 && bytes[0] == 0x42 && bytes[1] == 0x4D) {
-        format = 'bmp';
-      } else if (bytes.length >= 2 &&
-          bytes[0] == 0x50 &&
-          (bytes[1] == 0x33 || bytes[1] == 0x36)) {
-        format = 'ppm';
-      } else {
-        throw UnsupportedError(
-          'Cannot detect image format. Specify format parameter.',
-        );
-      }
-    }
+  /// Load an image from bytes (PNG, BMP, P3/P6 PPM). Without a [format]
+  /// name the format is detected from the data; see [ImageLoader].
+  static Result<Bitmap, ErrorDetails> decode(
+    final Uint8List bytes, {
+    String? format,
+    Limits limits = const Limits(),
+  }) => ImageLoader.loadFromBytes(bytes, format: format, limits: limits);
 
-    switch (format.toLowerCase()) {
-      case 'png':
-        final codec = PngImageCodec();
-        return codec.decode(bytes);
-      case 'bmp':
-        final codec = BmpImageCodec();
-        return codec.decode(bytes);
-      case 'ppm':
-      case 'p3':
-        final codec = P3ImageCodec();
-        return codec.decode(bytes);
-      case 'p6':
-        final codec = P6ImageCodec();
-        return codec.decode(bytes);
-      default:
-        throw UnsupportedError('Unsupported image format: $format');
-    }
-  }
-
-  /// Save an image to bytes in the specified format
-  static Uint8List saveImageToBytes(Bitmap image, String format) {
+  /// Encodes [image] in [format] (png, bmp, p3 or ppm, p6)
+  static Uint8List encode(final Bitmap image, final String format) {
     switch (format.toLowerCase()) {
       case 'png':
         final codec = PngImageCodec();

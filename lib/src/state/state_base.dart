@@ -4,13 +4,9 @@ abstract class StateBase<T extends StateBase<T>> {
   T clone();
 
   /// Validates a numeric value is within acceptable range
-  static double validatePositive(
-    double value,
-    String name, [
-    double defaultValue = 1.0,
-  ]) {
+  static double validatePositive(double value, [final double fallback = 1.0]) {
     if (value.isNaN || value.isInfinite || value < 0) {
-      return defaultValue;
+      return fallback;
     }
     return value;
   }

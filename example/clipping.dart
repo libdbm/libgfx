@@ -5,7 +5,10 @@ import 'package:libgfx/libgfx.dart';
 
 Future<void> main() async {
   const filesystem = LocalGraphicsFileSystem();
-  final engine = GraphicsEngine(500, 500, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+  // page units
+  final engine = GraphicsEngine(2 * 500, 2 * 500, filesystem: filesystem)
+    ..scale(2, 2);
   engine.clear(const Color.fromARGB(255, 29, 43, 83));
 
   // --- 1. Define a clipping path (a 5-pointed star) ---
@@ -35,7 +38,7 @@ Future<void> main() async {
     }
     starPath.lineTo(pInner.x, pInner.y);
   }
-  starPath.close();
+  starPath.closePath();
 
   // --- 2. Apply the clipping path ---
   engine.clip(starPath.build());
@@ -43,23 +46,21 @@ Future<void> main() async {
   // --- 3. Draw the dashed circle like before ---
   final path = PathBuilder().circle(250, 250, 200).build();
 
-  engine.setStrokePaint(
-    LinearGradient(
-      startPoint: Point(50, 50),
-      endPoint: Point(450, 450),
-      stops: [
-        ColorStop(0.0, const Color.fromARGB(255, 0, 228, 54)),
-        ColorStop(1.0, const Color.fromARGB(255, 255, 0, 77)),
-      ],
-    ),
+  engine.strokeStyle = LinearGradient(
+    start: Point(50, 50),
+    end: Point(450, 450),
+    stops: [
+      ColorStop(0.0, const Color.fromARGB(255, 0, 228, 54)),
+      ColorStop(1.0, const Color.fromARGB(255, 255, 0, 77)),
+    ],
   );
-  engine.setLineWidth(25);
+  engine.lineWidth = 25;
   engine.setLineDash([50, 15]);
-  engine.setLineCap(LineCap.round);
+  engine.lineCap = LineCap.round;
 
   engine.stroke(path);
 
   // --- 4. Save the result ---
-  await engine.saveToFile('output/clipping.ppm');
+  await engine.write('output/clipping.ppm');
   print('...output/clipping.ppm saved successfully!');
 }

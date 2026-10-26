@@ -1,6 +1,5 @@
 import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
-import 'package:libgfx/src/color/color_utils.dart';
 
 /// Creates a waterfall pattern demonstration
 /// Inspired by waterfal.ps - shows geometric shapes at different sizes
@@ -10,7 +9,10 @@ Future<void> main() async {
   const height = 800;
 
   const filesystem = LocalGraphicsFileSystem();
-  final engine = GraphicsEngine(width, height, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+  // page units
+  final engine = GraphicsEngine(2 * width, 2 * height, filesystem: filesystem)
+    ..scale(2, 2);
 
   // White background
   engine.clear(const Color.fromARGB(255, 255, 255, 255));
@@ -34,8 +36,8 @@ Future<void> main() async {
     engine.translate(0, yOffset);
 
     // Draw a line to separate sections
-    engine.setStrokeColor(const Color.fromARGB(255, 200, 200, 200));
-    engine.setLineWidth(1);
+    engine.strokeStyle = const Color.fromARGB(255, 200, 200, 200);
+    engine.lineWidth = 1;
     final line = PathBuilder().moveTo(0, -5).lineTo(width - 100, -5).build();
     engine.stroke(line);
 
@@ -49,13 +51,13 @@ Future<void> main() async {
       engine.translate(0, yOffset);
 
       // Draw size indicator (small square)
-      engine.setFillColor(const Color.fromARGB(255, 100, 100, 100));
+      engine.fillStyle = const Color.fromARGB(255, 100, 100, 100);
       final indicator = PathBuilder()
           .moveTo(0, 0)
           .lineTo(3, 0)
           .lineTo(3, 3)
           .lineTo(0, 3)
-          .close()
+          .closePath()
           .build();
       engine.fill(indicator);
 
@@ -87,7 +89,7 @@ Future<void> main() async {
 
   engine.restore();
 
-  await engine.saveToFile('output/waterfall.ppm');
+  await engine.write('output/waterfall.ppm');
   print('output/waterfall.ppm saved successfully!');
   print('A waterfall pattern demonstration has been rendered.');
 }
@@ -95,9 +97,9 @@ Future<void> main() async {
 void _drawShape(GraphicsEngine engine, String shape, double size, int index) {
   // Vary the color based on index
   final hue = (index * 36) % 360;
-  final color = ColorUtils.hslToRgb(HSLColor(hue.toDouble(), 0.7, 0.5));
+  final color = HSLColor(hue.toDouble(), 0.7, 0.5).color;
 
-  engine.setFillColor(color);
+  engine.fillStyle = color;
 
   Path path;
   switch (shape) {
@@ -105,7 +107,7 @@ void _drawShape(GraphicsEngine engine, String shape, double size, int index) {
       path = PathBuilder()
           .moveTo(size, 0)
           .arc(0, 0, size, 0, 2 * 3.14159)
-          .close()
+          .closePath()
           .build();
       break;
 
@@ -115,7 +117,7 @@ void _drawShape(GraphicsEngine engine, String shape, double size, int index) {
           .lineTo(size, -size)
           .lineTo(size, size)
           .lineTo(-size, size)
-          .close()
+          .closePath()
           .build();
       break;
 
@@ -124,7 +126,7 @@ void _drawShape(GraphicsEngine engine, String shape, double size, int index) {
           .moveTo(0, size)
           .lineTo(-size * 0.866, -size * 0.5)
           .lineTo(size * 0.866, -size * 0.5)
-          .close()
+          .closePath()
           .build();
       break;
 
@@ -135,9 +137,7 @@ void _drawShape(GraphicsEngine engine, String shape, double size, int index) {
   engine.fill(path);
 
   // Add a subtle outline
-  engine.setStrokeColor(const Color.fromARGB(255, 50, 50, 50));
-  engine.setLineWidth(0.5);
+  engine.strokeStyle = const Color.fromARGB(255, 50, 50, 50);
+  engine.lineWidth = 0.5;
   engine.stroke(path);
 }
-
-// Removed duplicate _hslToRgb function - now using ColorUtils.hslToRgb()

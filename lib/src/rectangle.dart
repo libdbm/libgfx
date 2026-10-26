@@ -22,21 +22,27 @@ class Rectangle<T extends num> {
     return Rectangle<T>(left, top, width, height);
   }
 
-  /// Creates a rectangle centered at (cx, cy) with the given width and height.
+  /// Creates a rectangle centered at (cx, cy) with the given width and
+  /// height; an integer rectangle with an odd size sits half a unit up and
+  /// left of the centre.
   factory Rectangle.fromCenter(T cx, T cy, T width, T height) {
-    final halfWidth = (width / 2) as T;
-    final halfHeight = (height / 2) as T;
     return Rectangle<T>(
-      (cx - halfWidth) as T,
-      (cy - halfHeight) as T,
+      (cx - _half(width)) as T,
+      (cy - _half(height)) as T,
       width,
       height,
     );
   }
 
   /// Creates an empty rectangle at origin.
-  static Rectangle<T> zero<T extends num>() =>
-      Rectangle<T>((0 as T), (0 as T), (0 as T), (0 as T));
+  static Rectangle<T> zero<T extends num>() {
+    // An int is not a double on the VM, so a double rectangle needs 0.0
+    final zero = (0 is T ? 0 : 0.0) as T;
+    return Rectangle<T>(zero, zero, zero, zero);
+  }
+
+  /// Half of [value], floored for integers so that it stays an integer
+  static num _half(final num value) => value is int ? value ~/ 2 : value / 2;
 
   /// Gets the right edge coordinate.
   T get right => (left + width) as T;
@@ -45,10 +51,10 @@ class Rectangle<T extends num> {
   T get bottom => (top + height) as T;
 
   /// Gets the center X coordinate.
-  T get centerX => (left + width / 2) as T;
+  T get centerX => (left + _half(width)) as T;
 
   /// Gets the center Y coordinate.
-  T get centerY => (top + height / 2) as T;
+  T get centerY => (top + _half(height)) as T;
 
   /// Checks if the rectangle is empty (has zero area).
   bool get isEmpty => width == 0 || height == 0;
@@ -147,10 +153,5 @@ class Rectangle<T extends num> {
   @override
   String toString() {
     return 'Rectangle($left, $top, $width × $height)';
-  }
-
-  /// Returns a string in LTRB format.
-  String toLTRBString() {
-    return 'Rectangle.fromLTRB($left, $top, $right, $bottom)';
   }
 }

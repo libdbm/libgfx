@@ -1,11 +1,16 @@
 import 'clipping/clip_region.dart';
 import 'color/color.dart';
+import 'fonts/font.dart';
 import 'matrix.dart';
 import 'paint.dart';
 import 'paths/path.dart';
+import 'result.dart';
 import 'state/clip_state.dart';
 import 'state/paint_state.dart';
 import 'state/stroke_state.dart';
+import 'state/text_state.dart';
+import 'text/text_rendering.dart';
+import 'text/text_types.dart';
 import 'state/transform_state.dart';
 
 /// Blend modes for compositing operations
@@ -46,10 +51,11 @@ enum LineCap { butt, round, square }
 
 /// Graphics state that manages rendering state using modular components
 class GraphicsState {
-  final TransformState _transformState;
-  final ClipState _clipState;
-  final PaintState _paintState;
-  final StrokeState _strokeState;
+  final TransformState _transform;
+  final ClipState _clip;
+  final PaintState _paint;
+  final StrokeState _stroke;
+  final TextState _text;
 
   GraphicsState({
     Matrix2D? transform,
@@ -64,22 +70,34 @@ class GraphicsState {
     LineCap lineCap = LineCap.butt,
     double miterLimit = 4.0,
     List<double>? dashPattern,
-  }) : _transformState = TransformState(
-         transform: transform ?? Matrix2D.identity(),
-       ),
-       _clipState = ClipState(clipPath: clipPath, clipRegion: clipRegion),
-       _paintState = PaintState(
-         fillPaint: fillPaint ?? SolidPaint(const Color(0xFF000000)),
-         strokePaint: strokePaint ?? SolidPaint(const Color(0xFF000000)),
+    Font? font,
+    double fontSize = 12.0,
+    TextAlign textAlign = TextAlign.start,
+    TextBaseline textBaseline = TextBaseline.alphabetic,
+    TextDirection direction = TextDirection.ltr,
+    TextRendering textRendering = TextRendering.auto,
+  }) : _transform = TransformState(transform: transform ?? Matrix2D.identity()),
+       _clip = ClipState(clipPath: clipPath, clipRegion: clipRegion),
+       _paint = PaintState(
+         fillPaint: fillPaint ?? const Color(0xFF000000),
+         strokePaint: strokePaint ?? const Color(0xFF000000),
          blendMode: blendMode,
          globalAlpha: globalAlpha,
        ),
-       _strokeState = StrokeState(
+       _stroke = StrokeState(
          strokeWidth: strokeWidth,
          lineJoin: lineJoin,
          lineCap: lineCap,
          miterLimit: miterLimit,
          dashPattern: dashPattern,
+       ),
+       _text = TextState(
+         font: font,
+         fontSize: fontSize,
+         textAlign: textAlign,
+         textBaseline: textBaseline,
+         direction: direction,
+         textRendering: textRendering,
        );
 
   // For compatibility with existing code that expects a required transform parameter
@@ -88,58 +106,77 @@ class GraphicsState {
   }
 
   // Transform properties
-  Matrix2D get transform => _transformState.transformation;
-  set transform(Matrix2D value) => _transformState.transform(value);
+  Matrix2D get transform => _transform.transformation;
+  set transform(Matrix2D value) => _transform.transform(value);
 
-  Matrix2D get inverse => _transformState.inverse();
+  Result<Matrix2D, ErrorDetails> get inverse => _transform.inverse();
 
   // Clip properties
-  Path? get clipPath => _clipState.clipPath;
+  Path? get clipPath => _clip.clipPath;
   set clipPath(Path? value) {
     if (value != null) {
-      _clipState.setClipPath(value);
+      _clip.setClipPath(value);
     } else {
-      _clipState.clearClip();
+      _clip.clearClip();
     }
   }
 
-  ClipRegion? get clipRegion => _clipState.clipRegion;
+  ClipRegion? get clipRegion => _clip.clipRegion;
   set clipRegion(ClipRegion? value) {
     if (value != null) {
-      _clipState.setClipRegion(value);
+      _clip.setClipRegion(value);
     } else if (clipPath == null) {
-      _clipState.clearClip();
+      _clip.clearClip();
     }
   }
 
   // Paint properties
-  Paint get fillPaint => _paintState.fillPaint;
-  set fillPaint(Paint value) => _paintState.setFillPaint(value);
+  Paint get fillPaint => _paint.fillPaint;
+  set fillPaint(Paint value) => _paint.setFillPaint(value);
 
-  Paint get strokePaint => _paintState.strokePaint;
-  set strokePaint(Paint value) => _paintState.setStrokePaint(value);
+  Paint get strokePaint => _paint.strokePaint;
+  set strokePaint(Paint value) => _paint.setStrokePaint(value);
 
-  BlendMode get blendMode => _paintState.blendMode;
-  set blendMode(BlendMode value) => _paintState.setBlendMode(value);
+  BlendMode get blendMode => _paint.blendMode;
+  set blendMode(BlendMode value) => _paint.setBlendMode(value);
 
-  double get globalAlpha => _paintState.globalAlpha;
-  set globalAlpha(double value) => _paintState.setGlobalAlpha(value);
+  double get globalAlpha => _paint.globalAlpha;
+  set globalAlpha(double value) => _paint.setGlobalAlpha(value);
 
   // Stroke properties
-  double get strokeWidth => _strokeState.strokeWidth;
-  set strokeWidth(double value) => _strokeState.setStrokeWidth(value);
+  double get strokeWidth => _stroke.strokeWidth;
+  set strokeWidth(double value) => _stroke.setStrokeWidth(value);
 
-  LineJoin get lineJoin => _strokeState.lineJoin;
-  set lineJoin(LineJoin value) => _strokeState.setLineJoin(value);
+  LineJoin get lineJoin => _stroke.lineJoin;
+  set lineJoin(LineJoin value) => _stroke.setLineJoin(value);
 
-  LineCap get lineCap => _strokeState.lineCap;
-  set lineCap(LineCap value) => _strokeState.setLineCap(value);
+  LineCap get lineCap => _stroke.lineCap;
+  set lineCap(LineCap value) => _stroke.setLineCap(value);
 
-  double get miterLimit => _strokeState.miterLimit;
-  set miterLimit(double value) => _strokeState.setMiterLimit(value);
+  double get miterLimit => _stroke.miterLimit;
+  set miterLimit(double value) => _stroke.setMiterLimit(value);
 
-  List<double>? get dashPattern => _strokeState.dashPattern;
-  set dashPattern(List<double>? value) => _strokeState.setDashPattern(value);
+  List<double>? get dashPattern => _stroke.dashPattern;
+  set dashPattern(List<double>? value) => _stroke.setDashPattern(value);
+
+  // Text properties
+  Font? get font => _text.font;
+  set font(Font? value) => _text.setFont(value);
+
+  double get fontSize => _text.fontSize;
+  set fontSize(double value) => _text.setFontSize(value);
+
+  TextAlign get textAlign => _text.textAlign;
+  set textAlign(TextAlign value) => _text.setTextAlign(value);
+
+  TextBaseline get textBaseline => _text.textBaseline;
+  set textBaseline(TextBaseline value) => _text.setTextBaseline(value);
+
+  TextDirection get direction => _text.direction;
+  set direction(TextDirection value) => _text.setDirection(value);
+
+  TextRendering get textRendering => _text.textRendering;
+  set textRendering(TextRendering value) => _text.setTextRendering(value);
 
   /// Clone the current state
   GraphicsState clone() {
@@ -156,6 +193,12 @@ class GraphicsState {
       lineCap: lineCap,
       miterLimit: miterLimit,
       dashPattern: dashPattern == null ? null : List.from(dashPattern!),
+      font: font,
+      fontSize: fontSize,
+      textAlign: textAlign,
+      textBaseline: textBaseline,
+      direction: direction,
+      textRendering: textRendering,
     );
   }
 }

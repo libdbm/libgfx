@@ -17,14 +17,14 @@ void main() {
         ..lineTo(0.0001, 0)
         ..lineTo(0.0001, 0.0001)
         ..lineTo(0, 0.0001)
-        ..close();
+        ..closePath();
 
       final builder2 = PathBuilder()
         ..moveTo(0.00005, -0.00005)
         ..lineTo(0.00015, -0.00005)
         ..lineTo(0.00015, 0.00015)
         ..lineTo(0.00005, 0.00015)
-        ..close();
+        ..closePath();
 
       final path1 = builder1.build();
       final path2 = builder2.build();
@@ -40,13 +40,13 @@ void main() {
         ..moveTo(0.123456789, 0.987654321)
         ..lineTo(1.111111111, 2.222222222)
         ..lineTo(3.333333333, 1.444444444)
-        ..close();
+        ..closePath();
 
       final builder2 = PathBuilder()
         ..moveTo(0.555555555, 0.666666666)
         ..lineTo(2.777777777, 1.888888888)
         ..lineTo(1.999999999, 3.111111111)
-        ..close();
+        ..closePath();
 
       final path1 = builder1.build();
       final path2 = builder2.build();
@@ -66,7 +66,7 @@ void main() {
         ..lineTo(10, 10)
         ..lineTo(10, 0)
         ..lineTo(0, 10)
-        ..close();
+        ..closePath();
 
       final selfIntersecting = builder.build();
 
@@ -76,7 +76,7 @@ void main() {
         ..lineTo(8, 2)
         ..lineTo(8, 8)
         ..lineTo(2, 8)
-        ..close();
+        ..closePath();
 
       final rect = rectBuilder.build();
 
@@ -99,7 +99,7 @@ void main() {
         ..lineTo(4, 3) // More redundant points
         ..lineTo(4, 4)
         ..lineTo(0, 4)
-        ..close();
+        ..closePath();
 
       final path = builder.build();
       final simplified = PathOperations.simplify(path, tolerance: 0.1);
@@ -114,7 +114,7 @@ void main() {
         ..lineTo(10, 0)
         ..lineTo(10, 10)
         ..lineTo(0, 10)
-        ..close();
+        ..closePath();
 
       final path = builder.build();
 
@@ -144,7 +144,7 @@ void main() {
         ..lineTo(10, 0)
         ..lineTo(10, 10)
         ..lineTo(0, 10)
-        ..close();
+        ..closePath();
 
       final path1 = builder.build();
       final path2 = builder.build();

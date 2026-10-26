@@ -18,7 +18,10 @@ Future<void> main() async {
   const eyeY = centerY - eyeOffsetY;
 
   const filesystem = LocalGraphicsFileSystem();
-  final engine = GraphicsEngine(width, height, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+  // page units
+  final engine = GraphicsEngine(2 * width, 2 * height, filesystem: filesystem)
+    ..scale(2, 2);
 
   // Clear background to white
   engine.clear(const Color.fromARGB(255, 255, 255, 255));
@@ -35,16 +38,16 @@ Future<void> main() async {
   final face = PathBuilder()
       .moveTo(centerX + faceRadius, centerY)
       .arc(centerX, centerY, faceRadius, 0, 2 * math.pi)
-      .close()
+      .closePath()
       .build();
 
   // Fill with yellow
-  engine.setFillColor(const Color.fromARGB(255, 255, 255, 0)); // Yellow
+  engine.fillStyle = const Color.fromARGB(255, 255, 255, 0); // Yellow
   engine.fill(face);
 
   // Stroke with black
-  engine.setStrokeColor(const Color.fromARGB(255, 0, 0, 0)); // Black
-  engine.setLineWidth(5);
+  engine.strokeStyle = const Color.fromARGB(255, 0, 0, 0); // Black
+  engine.lineWidth = 5;
   engine.stroke(face);
 
   engine.restore();
@@ -56,17 +59,17 @@ Future<void> main() async {
   final leftEye = PathBuilder()
       .moveTo(eyeX + eyeRadius, eyeY)
       .arc(eyeX, eyeY, eyeRadius, 0, 2 * math.pi)
-      .close()
+      .closePath()
       .build();
 
   // Right eye
   final rightEye = PathBuilder()
       .moveTo(centerX + eyeOffsetX + eyeRadius, eyeY)
       .arc(centerX + eyeOffsetX, eyeY, eyeRadius, 0, 2 * math.pi)
-      .close()
+      .closePath()
       .build();
 
-  engine.setFillColor(const Color.fromARGB(255, 0, 0, 0)); // Black
+  engine.fillStyle = const Color.fromARGB(255, 0, 0, 0); // Black
   engine.fill(leftEye);
   engine.fill(rightEye);
 
@@ -80,8 +83,8 @@ Future<void> main() async {
       .arc(centerX, centerY, mouthRadius, 0, math.pi)
       .build();
 
-  engine.setStrokeColor(const Color.fromARGB(255, 0, 0, 0)); // Black
-  engine.setLineWidth(5);
+  engine.strokeStyle = const Color.fromARGB(255, 0, 0, 0); // Black
+  engine.lineWidth = 5;
   engine.stroke(mouth);
 
   engine.restore();
@@ -90,6 +93,6 @@ Future<void> main() async {
   engine.restore();
 
   // Save to file
-  await engine.saveToFile('output/smiley.ppm');
+  await engine.write('output/smiley.ppm');
   print('output/smiley.ppm saved successfully!');
 }

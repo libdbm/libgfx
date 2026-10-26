@@ -1,6 +1,12 @@
+import '../matrix.dart';
+import '../paint.dart';
+import '../point.dart';
+import '../result.dart';
+
 /// A class to hold a 32-bit ARGB color value.
-/// This class is a pure Dart replacement for dart:ui.Color.
-class Color {
+/// This class is a pure Dart replacement for dart:ui.Color. A color is also
+/// a [Paint] that paints itself everywhere.
+class Color implements Paint {
   /// The 32-bit ARGB value.
   final int value;
 
@@ -22,8 +28,29 @@ class Color {
   }
 
   factory Color.clamped(double r, double g, double b, double a) {
-    int clamp(double a) => a.round().clamp(0, 255);
+    int clamp(final double channel) => channel.round().clamp(0, 255);
     return Color.fromRGBA(clamp(r), clamp(g), clamp(b), clamp(a));
+  }
+
+  /// Parses `#RRGGBB` or `#RRGGBBAA`; anything else is [ErrorKind.malformed]
+  static Result<Color, ErrorDetails> parse(final String text) {
+    final digits = RegExp(
+      r'^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$',
+    ).firstMatch(text);
+    if (digits == null) {
+      return Err(
+        ErrorDetails(
+          ErrorKind.malformed,
+          'Color must be #RRGGBB or #RRGGBBAA: $text',
+        ),
+      );
+    }
+    final hex = digits.group(1)!;
+    final rgb = int.parse(hex.substring(0, 6), radix: 16);
+    final alpha = hex.length == 8
+        ? int.parse(hex.substring(6), radix: 16)
+        : 255;
+    return Ok(Color((alpha << 24) | rgb));
   }
 
   /// Transparent color constant
@@ -56,4 +83,7 @@ class Color {
 
   /// The opacity of the color from 0.0 (transparent) to 1.0 (opaque).
   double get opacity => alpha / 255.0;
+
+  @override
+  Color sample(final Point point, final Matrix2D inverse) => this;
 }

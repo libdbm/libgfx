@@ -7,17 +7,42 @@ import 'codecs/p3_codec.dart';
 import 'codecs/p6_codec.dart';
 import 'codecs/png_codec.dart';
 import '../io/file_system.dart';
+import '../limits.dart';
+import '../result.dart';
 
 /// Base class for image codecs
 abstract class ImageCodec {
-  /// Decode image from bytes
-  Bitmap decode(Uint8List bytes);
+  /// Decode image from bytes; malformed or unsupported input, or an image
+  /// over [limits], is an [Err]
+  Result<Bitmap, ErrorDetails> decode(
+    Uint8List bytes, {
+    Limits limits = const Limits(),
+  });
 
   /// Encode image to bytes
   Uint8List encode(Bitmap image);
 
   /// Check if this codec can handle the given file
   bool canDecode(Uint8List bytes);
+
+  /// Runs a throwing parser at the decode boundary, converting the
+  /// exceptions raised by bad input into an [Err]. Any other exception is a
+  /// programming error and propagates.
+  static Result<Bitmap, ErrorDetails> guard(Bitmap Function() parse) {
+    try {
+      return Ok(parse());
+    } on RangeError catch (error) {
+      return Err(
+        ErrorDetails(ErrorKind.truncated, 'Image data ended early', error),
+      );
+    } on FormatException catch (error) {
+      return Err(ErrorDetails(ErrorKind.malformed, error.message, error));
+    } on UnsupportedFormatException catch (error) {
+      return Err(ErrorDetails(ErrorKind.unsupported, error.message, error));
+    } on ResourceLimitException catch (error) {
+      return Err(ErrorDetails(ErrorKind.limit, error.message, error));
+    }
+  }
 }
 
 /// Factory class for loading images
@@ -30,28 +55,51 @@ class ImageLoader {
   ];
 
   /// Load image from file
-  static Future<Bitmap> loadFromFile(
+  static Future<Result<Bitmap, ErrorDetails>> loadFromFile(
     String path, {
     required GraphicsFileSystem filesystem,
+    Limits limits = const Limits(),
   }) async {
-    final bytes = await filesystem.readFile(path);
-    if (bytes == null) {
-      throw UnsupportedFormatException(path, 'File not found at $path');
+    final Uint8List? bytes;
+    try {
+      bytes = await filesystem.read(path);
+    } on Exception catch (error) {
+      return Err(ErrorDetails(ErrorKind.io, 'Cannot read $path', error));
     }
-    return loadFromBytes(bytes);
+    if (bytes == null) {
+      return Err(ErrorDetails(ErrorKind.io, 'File not found at $path'));
+    }
+    return loadFromBytes(bytes, limits: limits);
   }
 
-  /// Load image from bytes
-  static Bitmap loadFromBytes(Uint8List bytes) {
-    for (final codec in _codecs) {
-      if (codec.canDecode(bytes)) {
-        return codec.decode(bytes);
-      }
+  /// Load image from bytes. With a [format] name ('png', 'bmp', 'ppm' or
+  /// 'p3' for ASCII PPM, 'p6'), that codec is used; otherwise the format is
+  /// detected from the data.
+  static Result<Bitmap, ErrorDetails> loadFromBytes(
+    Uint8List bytes, {
+    String? format,
+    Limits limits = const Limits(),
+  }) {
+    final codec = format == null
+        ? _codecs.where((codec) => codec.canDecode(bytes)).firstOrNull
+        : switch (format.toLowerCase()) {
+            'png' => PngImageCodec(),
+            'bmp' => BmpImageCodec(),
+            'ppm' || 'p3' => P3ImageCodec(),
+            'p6' => P6ImageCodec(),
+            _ => null,
+          };
+    if (codec == null) {
+      return Err(
+        ErrorDetails(
+          ErrorKind.unsupported,
+          format == null
+              ? 'Could not detect image format from data'
+              : 'Unsupported image format: $format',
+        ),
+      );
     }
-    throw UnsupportedFormatException(
-      'unknown',
-      'Could not detect image format from data',
-    );
+    return codec.decode(bytes, limits: limits);
   }
 
   /// Save image to file
@@ -81,6 +129,6 @@ class ImageLoader {
     }
 
     final bytes = codec.encode(image);
-    await filesystem.writeFile(path, bytes);
+    await filesystem.write(path, bytes);
   }
 }

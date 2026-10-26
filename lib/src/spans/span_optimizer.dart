@@ -6,14 +6,14 @@ import 'span_utils.dart';
 class SpanOptimizer extends SpanProcessor {
   @override
   List<Span> process(List<Span> spans) {
-    return SpanUtils.processByScanline(spans, (y, lineSpans) {
-      if (lineSpans.isEmpty) return [];
-      if (lineSpans.length == 1) return lineSpans;
+    return SpanUtils.processByScanline(spans, (y, line) {
+      if (line.isEmpty) return [];
+      if (line.length == 1) return line;
 
       final optimized = <Span>[];
       Span? current;
 
-      for (final span in lineSpans) {
+      for (final span in line) {
         if (current == null) {
           current = span;
         } else if (current.x2 == span.x1 && current.coverage == span.coverage) {

@@ -54,8 +54,8 @@ class MathUtils {
 
   /// Fast integer linear interpolation using fixed-point math
   static int lerpInt(int a, int b, double t) {
-    final fixed_t = (t * 256).round().clamp(0, 256);
-    return a + ((b - a) * fixed_t >> 8);
+    final fixed = (t * 256).round().clamp(0, 256);
+    return a + ((b - a) * fixed >> 8);
   }
 
   /// Bilinear interpolation

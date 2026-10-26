@@ -2,11 +2,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:libgfx/io/local_file_system.dart';
-import 'package:libgfx/src/io/file_system.dart';
-import 'package:libgfx/src/color/color.dart';
-import 'package:libgfx/src/fonts/ttf/ttf_font.dart';
-import 'package:libgfx/src/graphics_engine_facade.dart';
-import 'package:libgfx/src/paths/path.dart';
+import 'package:libgfx/libgfx.dart';
 
 void main() async {
   print('TTF Font Rendering Demo');
@@ -21,7 +17,7 @@ void main() async {
       .toList();
 
   if (fontFiles.isEmpty) {
-    print('No TTF fonts found in data/fonts directory');
+    print('No TTF fonts found in data/fonts; run ./scripts/download_fonts.sh');
     return;
   }
 
@@ -34,15 +30,12 @@ void main() async {
 
   final fonts = <TTFFont>[];
   for (final fontFile in fontFiles) {
-    try {
-      final font = await TTFFont.loadFromFile(
-        fontFile.path,
-        filesystem: filesystem,
-      );
-      fonts.add(font);
-      print('Loaded: ${font.familyName} ${font.styleName}');
-    } catch (e) {
-      print('Failed to load ${fontFile.path}: $e');
+    switch (await TTFFont.load(fontFile.path, filesystem: filesystem)) {
+      case Ok(:final value):
+        fonts.add(value);
+        print('Loaded: ${value.family} ${value.style}');
+      case Err(:final error):
+        print('Failed to load ${fontFile.path}: $error');
     }
   }
 
@@ -65,19 +58,22 @@ Future<void> createFontShowcaseDemo(
   List<TTFFont> fonts,
   GraphicsFileSystem filesystem,
 ) async {
-  final engine = GraphicsEngine(1200, 800, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+  // page units
+  final engine = GraphicsEngine(2 * 1200, 2 * 800, filesystem: filesystem)
+    ..scale(2, 2);
   engine.clear(const Color(0xFF2C3E50)); // Dark blue background
 
   // Title
-  engine.setFillColor(const Color(0xFFFFFFFF));
+  engine.fillStyle = const Color(0xFFFFFFFF);
   if (fonts.isNotEmpty) {
-    final titlePath = fonts.first.getTextPath('Font Showcase', 50, 80, 36);
-    engine.fill(titlePath);
+    final titlePath = fonts.first.path('Font Showcase', 50, 80, 36);
+    engine.fill(titlePath, text: true);
   }
 
   // Draw a line under title
-  engine.setStrokeColor(const Color(0xFFE74C3C));
-  engine.setLineWidth(3);
+  engine.strokeStyle = const Color(0xFFE74C3C);
+  engine.lineWidth = 3;
   final underline = PathBuilder()
     ..moveTo(50, 100)
     ..lineTo(600, 100);
@@ -98,34 +94,29 @@ Future<void> createFontShowcaseDemo(
     final font = fonts[i];
     final color = colors[i % colors.length];
 
-    engine.setFillColor(color);
+    engine.fillStyle = color;
 
     // Font name
-    final fontNamePath = font.getTextPath(
-      '${font.familyName} ${font.styleName}',
-      50,
-      y,
-      18,
-    );
-    engine.fill(fontNamePath);
+    final fontNamePath = font.path('${font.family} ${font.style}', 50, y, 18);
+    engine.fill(fontNamePath, text: true);
 
     // Sample text
-    final textPath = font.getTextPath(testText, 50, y + 40, 16);
-    engine.fill(textPath);
+    final textPath = font.path(testText, 50, y + 40, 16);
+    engine.fill(textPath, text: true);
 
     // Font info
-    engine.setFillColor(const Color(0xFFBDC3C7)); // Light gray
+    engine.fillStyle = const Color(0xFFBDC3C7); // Light gray
     final infoText =
         'Units/Em: ${font.unitsPerEm} | Ascender: ${font.metrics.ascender} | Descender: ${font.metrics.descender}';
     if (fonts.isNotEmpty) {
-      final infoPath = fonts.first.getTextPath(infoText, 50, y + 65, 12);
-      engine.fill(infoPath);
+      final infoPath = fonts.first.path(infoText, 50, y + 65, 12);
+      engine.fill(infoPath, text: true);
     }
 
     y += 120;
   }
 
-  await engine.saveToFile('output/ttf_showcase.ppm');
+  await engine.write('output/ttf_showcase.ppm');
   print('Created output/ttf_showcase.ppm');
 }
 
@@ -135,15 +126,20 @@ Future<void> createTypographyDemo(
 ) async {
   if (fonts.isEmpty) return;
 
-  final engine = GraphicsEngine(800, 1000, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+
+  // page units
+
+  final engine = GraphicsEngine(2 * 800, 2 * 1000, filesystem: filesystem)
+    ..scale(2, 2);
   engine.clear(const Color(0xFFF8F9FA)); // Light background
 
   final font = fonts.first;
 
   // Title
-  engine.setFillColor(const Color(0xFF212529));
-  final title = font.getTextPath('Typography Samples', 50, 80, 32);
-  engine.fill(title);
+  engine.fillStyle = const Color(0xFF212529);
+  final title = font.path('Typography Samples', 50, 80, 32);
+  engine.fill(title, text: true);
 
   double y = 150;
 
@@ -157,9 +153,9 @@ Future<void> createTypographyDemo(
   ];
 
   for (final (text, size) in headingTexts) {
-    engine.setFillColor(const Color(0xFF495057));
-    final path = font.getTextPath(text, 50, y, size);
-    engine.fill(path);
+    engine.fillStyle = const Color(0xFF495057);
+    final path = font.path(text, 50, y, size);
+    engine.fill(path, text: true);
     y += size + 10;
   }
 
@@ -176,11 +172,11 @@ Future<void> createTypographyDemo(
     'Font metrics help ensure proper text layout.',
   ];
 
-  engine.setFillColor(const Color(0xFF212529));
+  engine.fillStyle = const Color(0xFF212529);
   for (final line in paragraphLines) {
     if (line.isNotEmpty) {
-      final path = font.getTextPath(line, 50, y, 14);
-      engine.fill(path);
+      final path = font.path(line, 50, y, 14);
+      engine.fill(path, text: true);
     }
     y += 20; // Line height
   }
@@ -190,55 +186,50 @@ Future<void> createTypographyDemo(
   // Different styles if we have multiple fonts
   if (fonts.length > 1) {
     final regularFont = fonts.firstWhere(
-      (f) => f.styleName.toLowerCase().contains('regular'),
+      (f) => f.style.toLowerCase().contains('regular'),
       orElse: () => fonts.first,
     );
     final italicFont = fonts
-        .where((f) => f.styleName.toLowerCase().contains('italic'))
+        .where((f) => f.style.toLowerCase().contains('italic'))
         .firstOrNull;
     final lightFont = fonts
-        .where((f) => f.styleName.toLowerCase().contains('light'))
+        .where((f) => f.style.toLowerCase().contains('light'))
         .firstOrNull;
 
-    engine.setFillColor(const Color(0xFF6C757D));
-    final styleTitle = regularFont.getTextPath('Font Styles:', 50, y, 18);
-    engine.fill(styleTitle);
+    engine.fillStyle = const Color(0xFF6C757D);
+    final styleTitle = regularFont.path('Font Styles:', 50, y, 18);
+    engine.fill(styleTitle, text: true);
     y += 30;
 
-    engine.setFillColor(const Color(0xFF212529));
-    final regularText = regularFont.getTextPath(
+    engine.fillStyle = const Color(0xFF212529);
+    final regularText = regularFont.path(
       'Regular: Standard font weight',
       50,
       y,
       16,
     );
-    engine.fill(regularText);
+    engine.fill(regularText, text: true);
     y += 25;
 
     if (italicFont != null) {
-      final italicText = italicFont.getTextPath(
+      final italicText = italicFont.path(
         'Italic: Slanted text style',
         50,
         y,
         16,
       );
-      engine.fill(italicText);
+      engine.fill(italicText, text: true);
       y += 25;
     }
 
     if (lightFont != null) {
-      final lightText = lightFont.getTextPath(
-        'Light: Thinner font weight',
-        50,
-        y,
-        16,
-      );
-      engine.fill(lightText);
+      final lightText = lightFont.path('Light: Thinner font weight', 50, y, 16);
+      engine.fill(lightText, text: true);
       y += 25;
     }
   }
 
-  await engine.saveToFile('output/ttf_typography.ppm');
+  await engine.write('output/ttf_typography.ppm');
   print('Created output/ttf_typography.ppm');
 }
 
@@ -248,44 +239,49 @@ Future<void> createSizesDemo(
 ) async {
   if (fonts.isEmpty) return;
 
-  final engine = GraphicsEngine(1000, 600, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+
+  // page units
+
+  final engine = GraphicsEngine(2 * 1000, 2 * 600, filesystem: filesystem)
+    ..scale(2, 2);
   engine.clear(const Color(0xFFFFFFFF));
 
   final font = fonts.first;
   final testText = 'Size Test';
 
   // Title
-  engine.setFillColor(const Color(0xFF333333));
-  final title = font.getTextPath('Font Size Variations', 50, 60, 24);
-  engine.fill(title);
+  engine.fillStyle = const Color(0xFF333333);
+  final title = font.path('Font Size Variations', 50, 60, 24);
+  engine.fill(title, text: true);
 
   // Different sizes
   final sizes = [8.0, 12.0, 16.0, 20.0, 24.0, 32.0, 48.0, 64.0, 96.0];
   double y = 120;
 
   for (final size in sizes) {
-    engine.setFillColor(const Color(0xFF444444));
+    engine.fillStyle = const Color(0xFF444444);
 
     // Size label
-    final label = font.getTextPath('${size.toInt()}pt', 50, y, 12);
-    engine.fill(label);
+    final label = font.path('${size.toInt()}pt', 50, y, 12);
+    engine.fill(label, text: true);
 
     // Sample text at that size
-    final path = font.getTextPath(testText, 120, y, size);
-    engine.fill(path);
+    final path = font.path(testText, 120, y, size);
+    engine.fill(path, text: true);
 
     // Measure the text
-    final metrics = font.measureText(testText, size);
+    final metrics = font.measure(testText, size);
     final infoText =
         '(${metrics.width.toStringAsFixed(1)}×${metrics.height.toStringAsFixed(1)}px)';
-    final info = font.getTextPath(infoText, 120 + metrics.width + 20, y, 10);
-    engine.setFillColor(const Color(0xFF888888));
-    engine.fill(info);
+    final info = font.path(infoText, 120 + metrics.width + 20, y, 10);
+    engine.fillStyle = const Color(0xFF888888);
+    engine.fill(info, text: true);
 
     y += math.max(size + 10, 25);
   }
 
-  await engine.saveToFile('output/ttf_sizes.ppm');
+  await engine.write('output/ttf_sizes.ppm');
   print('Created output/ttf_sizes.ppm');
 }
 
@@ -295,7 +291,12 @@ Future<void> createMetricsDemo(
 ) async {
   if (fonts.isEmpty) return;
 
-  final engine = GraphicsEngine(800, 600, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+
+  // page units
+
+  final engine = GraphicsEngine(2 * 800, 2 * 600, filesystem: filesystem)
+    ..scale(2, 2);
   engine.clear(const Color(0xFFF5F5F5));
 
   final font = fonts.first;
@@ -303,34 +304,34 @@ Future<void> createMetricsDemo(
   final testText = 'Typography';
 
   // Title
-  engine.setFillColor(const Color(0xFF333333));
-  final title = font.getTextPath('Font Metrics Visualization', 50, 60, 20);
-  engine.fill(title);
+  engine.fillStyle = const Color(0xFF333333);
+  final title = font.path('Font Metrics Visualization', 50, 60, 20);
+  engine.fill(title, text: true);
 
   // Position text
   final textX = 100.0;
   final textY = 200.0;
 
   // Render the text
-  engine.setFillColor(const Color(0xFF2C3E50));
-  final textPath = font.getTextPath(testText, textX, textY, fontSize);
-  engine.fill(textPath);
+  engine.fillStyle = const Color(0xFF2C3E50);
+  final textPath = font.path(testText, textX, textY, fontSize);
+  engine.fill(textPath, text: true);
 
   // Get font metrics
   final fontMetrics = font.metrics.scale(fontSize, font.unitsPerEm);
-  final textMetrics = font.measureText(testText, fontSize);
+  final textMetrics = font.measure(testText, fontSize);
 
   // Draw baseline
-  engine.setStrokeColor(const Color(0xFFE74C3C)); // Red
-  engine.setLineWidth(2);
+  engine.strokeStyle = const Color(0xFFE74C3C); // Red
+  engine.lineWidth = 2;
   final baseline = PathBuilder()
     ..moveTo(textX - 20, textY)
     ..lineTo(textX + textMetrics.width + 20, textY);
   engine.stroke(baseline.build());
 
   // Draw ascender line
-  engine.setStrokeColor(const Color(0xFF3498DB)); // Blue
-  engine.setLineWidth(1);
+  engine.strokeStyle = const Color(0xFF3498DB); // Blue
+  engine.lineWidth = 1;
   final ascenderY = textY - fontMetrics.ascender;
   final ascenderLine = PathBuilder()
     ..moveTo(textX - 20, ascenderY)
@@ -338,7 +339,7 @@ Future<void> createMetricsDemo(
   engine.stroke(ascenderLine.build());
 
   // Draw descender line
-  engine.setStrokeColor(const Color(0xFF2ECC71)); // Green
+  engine.strokeStyle = const Color(0xFF2ECC71); // Green
   final descenderY = textY - fontMetrics.descender;
   final descenderLine = PathBuilder()
     ..moveTo(textX - 20, descenderY)
@@ -346,14 +347,14 @@ Future<void> createMetricsDemo(
   engine.stroke(descenderLine.build());
 
   // Draw text width indicator
-  engine.setStrokeColor(const Color(0xFF9B59B6)); // Purple
+  engine.strokeStyle = const Color(0xFF9B59B6); // Purple
   final widthLine = PathBuilder()
     ..moveTo(textX, textY + 30)
     ..lineTo(textX + textMetrics.width, textY + 30);
   engine.stroke(widthLine.build());
 
   // Labels
-  engine.setFillColor(const Color(0xFF666666));
+  engine.fillStyle = const Color(0xFF666666);
   final labels = [
     (
       'Baseline',
@@ -382,14 +383,14 @@ Future<void> createMetricsDemo(
   ];
 
   for (final (label, x, y, color) in labels) {
-    engine.setFillColor(color);
-    final labelPath = font.getTextPath(label, x, y, 12);
-    engine.fill(labelPath);
+    engine.fillStyle = color;
+    final labelPath = font.path(label, x, y, 12);
+    engine.fill(labelPath, text: true);
   }
 
   // Metrics info
   double infoY = 350;
-  engine.setFillColor(const Color(0xFF333333));
+  engine.fillStyle = const Color(0xFF333333);
   final metricsInfo = [
     'Font Metrics (${fontSize.toInt()}pt):',
     'Ascender: ${fontMetrics.ascender.toInt()}px',
@@ -406,13 +407,13 @@ Future<void> createMetricsDemo(
 
   for (final info in metricsInfo) {
     if (info.isNotEmpty) {
-      final infoPath = font.getTextPath(info, 50, infoY, 14);
-      engine.fill(infoPath);
+      final infoPath = font.path(info, 50, infoY, 14);
+      engine.fill(infoPath, text: true);
     }
     infoY += 18;
   }
 
-  await engine.saveToFile('output/ttf_metrics.ppm');
+  await engine.write('output/ttf_metrics.ppm');
   print('Created output/ttf_metrics.ppm');
 }
 
@@ -422,16 +423,21 @@ Future<void> createKerningDemo(
 ) async {
   if (fonts.isEmpty) return;
 
-  final engine = GraphicsEngine(800, 500, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+
+  // page units
+
+  final engine = GraphicsEngine(2 * 800, 2 * 500, filesystem: filesystem)
+    ..scale(2, 2);
   engine.clear(const Color(0xFFFFFFFF));
 
   final font = fonts.first;
   final fontSize = 36.0;
 
   // Title
-  engine.setFillColor(const Color(0xFF333333));
-  final title = font.getTextPath('Kerning Demonstration', 50, 60, 20);
-  engine.fill(title);
+  engine.fillStyle = const Color(0xFF333333);
+  final title = font.path('Kerning Demonstration', 50, 60, 20);
+  engine.fill(title, text: true);
 
   // Test kerning pairs
   final kerningPairs = ['AV', 'To', 'We', 'Yo', 'VA', 'LT'];
@@ -442,62 +448,62 @@ Future<void> createKerningDemo(
     final char1 = pair.codeUnitAt(0);
     final char2 = pair.codeUnitAt(1);
 
-    if (font.hasGlyph(char1) && font.hasGlyph(char2)) {
+    if (font.covers(char1) && font.covers(char2)) {
       // Without kerning - manual spacing
-      engine.setFillColor(const Color(0xFF666666));
-      final label1 = font.getTextPath('No kerning:', 50, y, 14);
-      engine.fill(label1);
+      engine.fillStyle = const Color(0xFF666666);
+      final label1 = font.path('No kerning:', 50, y, 14);
+      engine.fill(label1, text: true);
 
-      final glyph1Index = font.getGlyphIndex(char1);
-      final glyph2Index = font.getGlyphIndex(char2);
+      final glyph1Index = font.glyph(char1);
+      final glyph2Index = font.glyph(char2);
 
-      final glyph1Metrics = font.getGlyphMetrics(glyph1Index);
+      final glyph1Metrics = font.dimensions(glyph1Index);
       final scale = fontSize / font.unitsPerEm;
 
-      engine.setFillColor(const Color(0xFF333333));
-      final char1Path = font.getTextPath(pair[0], 200, y, fontSize);
-      engine.fill(char1Path);
+      engine.fillStyle = const Color(0xFF333333);
+      final char1Path = font.path(pair[0], 200, y, fontSize);
+      engine.fill(char1Path, text: true);
 
-      final char2Path = font.getTextPath(
+      final char2Path = font.path(
         pair[1],
         200 + glyph1Metrics.advanceWidth * scale,
         y,
         fontSize,
       );
-      engine.fill(char2Path);
+      engine.fill(char2Path, text: true);
 
       y += 50;
 
       // With kerning - using font's kerning
-      engine.setFillColor(const Color(0xFF666666));
-      final label2 = font.getTextPath('With kerning:', 50, y, 14);
-      engine.fill(label2);
+      engine.fillStyle = const Color(0xFF666666);
+      final label2 = font.path('With kerning:', 50, y, 14);
+      engine.fill(label2, text: true);
 
-      engine.setFillColor(const Color(0xFF333333));
-      final kernedPath = font.getTextPath(pair, 200, y, fontSize);
-      engine.fill(kernedPath);
+      engine.fillStyle = const Color(0xFF333333);
+      final kernedPath = font.path(pair, 200, y, fontSize);
+      engine.fill(kernedPath, text: true);
 
       // Show kerning value
-      final kerning = font.getKerning(glyph1Index, glyph2Index, fontSize);
+      final kerning = font.kerning(glyph1Index, glyph2Index, fontSize);
       if (kerning != 0.0) {
-        engine.setFillColor(const Color(0xFF2ECC71));
-        final kernValue = font.getTextPath(
+        engine.fillStyle = const Color(0xFF2ECC71);
+        final kernValue = font.path(
           'Kerning: ${kerning.toStringAsFixed(1)}px',
           350,
           y,
           12,
         );
-        engine.fill(kernValue);
+        engine.fill(kernValue, text: true);
       } else {
-        engine.setFillColor(const Color(0xFF95A5A6));
-        final noKern = font.getTextPath('No kerning data', 350, y, 12);
-        engine.fill(noKern);
+        engine.fillStyle = const Color(0xFF95A5A6);
+        final noKern = font.path('No kerning data', 350, y, 12);
+        engine.fill(noKern, text: true);
       }
 
       y += 60;
     }
   }
 
-  await engine.saveToFile('output/ttf_kerning.ppm');
+  await engine.write('output/ttf_kerning.ppm');
   print('Created output/ttf_kerning.ppm');
 }

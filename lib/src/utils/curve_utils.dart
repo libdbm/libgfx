@@ -16,7 +16,7 @@ class CurveUtils {
   static const int defaultMaxSteps = 256;
 
   /// Flatten cubic Bezier to line segments with adaptive subdivision
-  static List<Point> _flattenCubicBezier(
+  static List<Point> _adaptive(
     Point p0,
     Point p1,
     Point p2,
@@ -26,17 +26,7 @@ class CurveUtils {
   }) {
     final points = <Point>[];
     points.add(p0); // Add the start point
-    _subdivideCubicBezier(
-      p0,
-      p1,
-      p2,
-      p3,
-      0,
-      points,
-      tolerance,
-      maxDepth,
-      false,
-    );
+    _subdivide(p0, p1, p2, p3, 0, points, tolerance, maxDepth);
     return points;
   }
 
@@ -57,7 +47,7 @@ class CurveUtils {
   }
 
   /// Recursive subdivision for cubic Bezier curves with numerical stability
-  static void _subdivideCubicBezier(
+  static void _subdivide(
     Point p0,
     Point p1,
     Point p2,
@@ -66,7 +56,6 @@ class CurveUtils {
     List<Point> output,
     double tolerance,
     int maxDepth,
-    bool isFirstCall,
   ) {
     // Safety check: prevent infinite recursion
     if (depth >= maxDepth) {
@@ -76,7 +65,7 @@ class CurveUtils {
     }
 
     // Additional safety: check for degenerate curve (all points very close)
-    final maxDist = [
+    final extent = [
       (p1 - p0).length,
       (p2 - p1).length,
       (p3 - p2).length,
@@ -84,14 +73,14 @@ class CurveUtils {
     ].reduce(math.max);
 
     // If curve is essentially a point, stop subdividing
-    if (maxDist < tolerance * 0.001) {
+    if (extent < tolerance * 0.001) {
       output.add(p3);
       return;
     }
 
     // Check if curve is flat enough using perpendicular distance
-    final d1 = _pointToLineDistance(p1, p0, p3);
-    final d2 = _pointToLineDistance(p2, p0, p3);
+    final d1 = _distance(p1, p0, p3);
+    final d2 = _distance(p2, p0, p3);
 
     // Use fixed tolerance to prevent artifacts from adaptive scaling
     if (d1 <= tolerance && d2 <= tolerance) {
@@ -117,32 +106,12 @@ class CurveUtils {
     }
 
     // Recursively subdivide - the midpoint will be added by the first subdivision
-    _subdivideCubicBezier(
-      p0,
-      p01,
-      p012,
-      p0123,
-      depth + 1,
-      output,
-      tolerance,
-      maxDepth,
-      false,
-    );
-    _subdivideCubicBezier(
-      p0123,
-      p123,
-      p23,
-      p3,
-      depth + 1,
-      output,
-      tolerance,
-      maxDepth,
-      false,
-    );
+    _subdivide(p0, p01, p012, p0123, depth + 1, output, tolerance, maxDepth);
+    _subdivide(p0123, p123, p23, p3, depth + 1, output, tolerance, maxDepth);
   }
 
   /// Tessellate an arc into line segments
-  static List<Point> _tessellateArc(
+  static List<Point> _arc(
     double centerX,
     double centerY,
     double radius,
@@ -156,18 +125,18 @@ class CurveUtils {
     final points = <Point>[];
 
     // Calculate sweep angle
-    var sweepAngle = endAngle - startAngle;
-    if (counterClockwise && sweepAngle > 0) {
-      sweepAngle -= 2 * math.pi;
-    } else if (!counterClockwise && sweepAngle < 0) {
-      sweepAngle += 2 * math.pi;
+    var sweep = endAngle - startAngle;
+    if (counterClockwise && sweep > 0) {
+      sweep -= 2 * math.pi;
+    } else if (!counterClockwise && sweep < 0) {
+      sweep += 2 * math.pi;
     }
 
     // Adaptive step calculation based on radius and tolerance
-    final errorAngle = radius > tolerance
+    final limit = radius > tolerance
         ? 2 * math.acos(1 - tolerance / radius)
         : math.pi / 4;
-    var steps = math.max(2, (sweepAngle.abs() / errorAngle).ceil());
+    var steps = math.max(2, (sweep.abs() / limit).ceil());
 
     if (minSteps != null || maxSteps != null) {
       steps = steps.clamp(
@@ -176,10 +145,10 @@ class CurveUtils {
       );
     }
 
-    final angleStep = sweepAngle / steps;
+    final step = sweep / steps;
 
     for (int i = 0; i <= steps; i++) {
-      final angle = startAngle + i * angleStep;
+      final angle = startAngle + i * step;
       final point = MathUtils.circlePoint(centerX, centerY, radius, angle);
       final x = point.x;
       final y = point.y;
@@ -190,7 +159,7 @@ class CurveUtils {
   }
 
   /// Tessellate an ellipse into line segments
-  static List<Point> _tessellateEllipse(
+  static List<Point> _ellipse(
     double centerX,
     double centerY,
     double radiusX,
@@ -206,19 +175,19 @@ class CurveUtils {
     final points = <Point>[];
 
     // Calculate sweep angle
-    var sweepAngle = endAngle - startAngle;
-    if (counterClockwise && sweepAngle > 0) {
-      sweepAngle -= 2 * math.pi;
-    } else if (!counterClockwise && sweepAngle < 0) {
-      sweepAngle += 2 * math.pi;
+    var sweep = endAngle - startAngle;
+    if (counterClockwise && sweep > 0) {
+      sweep -= 2 * math.pi;
+    } else if (!counterClockwise && sweep < 0) {
+      sweep += 2 * math.pi;
     }
 
     // Adaptive step calculation based on average radius
-    final avgRadius = (radiusX + radiusY) / 2;
-    final errorAngle = avgRadius > tolerance
-        ? 2 * math.acos(1 - tolerance / avgRadius)
+    final mean = (radiusX + radiusY) / 2;
+    final limit = mean > tolerance
+        ? 2 * math.acos(1 - tolerance / mean)
         : math.pi / 4;
-    var steps = math.max(2, (sweepAngle.abs() / errorAngle).ceil());
+    var steps = math.max(2, (sweep.abs() / limit).ceil());
 
     if (minSteps != null || maxSteps != null) {
       steps = steps.clamp(
@@ -227,12 +196,12 @@ class CurveUtils {
       );
     }
 
-    final angleStep = sweepAngle / steps;
-    final cosRot = math.cos(rotation);
-    final sinRot = math.sin(rotation);
+    final step = sweep / steps;
+    final cos = math.cos(rotation);
+    final sin = math.sin(rotation);
 
     for (int i = 0; i <= steps; i++) {
-      final angle = startAngle + i * angleStep;
+      final angle = startAngle + i * step;
       final cosAngle = math.cos(angle);
       final sinAngle = math.sin(angle);
 
@@ -241,8 +210,8 @@ class CurveUtils {
       final ey = radiusY * sinAngle;
 
       // Apply rotation and translation
-      final x = centerX + ex * cosRot - ey * sinRot;
-      final y = centerY + ex * sinRot + ey * cosRot;
+      final x = centerX + ex * cos - ey * sin;
+      final y = centerY + ex * sin + ey * cos;
       points.add(Point(x, y));
     }
 
@@ -251,30 +220,29 @@ class CurveUtils {
 
   /// Tessellate an arc from PathCommand
   static List<Point> tessellateArcCommand(
-    Point startPoint,
+    final Point start,
     ArcCommand arc, {
     double tolerance = defaultTolerance,
   }) {
-    final points = <Point>[startPoint];
+    final points = <Point>[start];
 
-    // Connect from startPoint to first point on arc if needed
-    final firstAngle = arc.startAngle;
-    final firstPoint = MathUtils.circlePoint(
+    // Connect from start to first point on arc if needed
+    final angle = arc.startAngle;
+    final first = MathUtils.circlePoint(
       arc.centerX,
       arc.centerY,
       arc.radius,
-      firstAngle,
+      angle,
     );
-    final firstX = firstPoint.x;
-    final firstY = firstPoint.y;
+    final firstX = first.x;
+    final firstY = first.y;
 
-    if ((startPoint.x - firstX).abs() > 0.001 ||
-        (startPoint.y - firstY).abs() > 0.001) {
+    if ((start.x - firstX).abs() > 0.001 || (start.y - firstY).abs() > 0.001) {
       points.add(Point(firstX, firstY));
     }
 
     // Tessellate the arc itself
-    final arcPoints = _tessellateArc(
+    final tessellated = _arc(
       arc.centerX,
       arc.centerY,
       arc.radius,
@@ -284,23 +252,24 @@ class CurveUtils {
     );
 
     // Skip the first point if it's the same as what we already added
-    final skipFirst =
-        arcPoints.isNotEmpty && (points.last - arcPoints.first).length < 0.001;
-    points.addAll(skipFirst ? arcPoints.skip(1) : arcPoints);
+    final duplicate =
+        tessellated.isNotEmpty &&
+        (points.last - tessellated.first).length < 0.001;
+    points.addAll(duplicate ? tessellated.skip(1) : tessellated);
 
     return points;
   }
 
   /// Tessellate an ellipse from PathCommand
   static List<Point> tessellateEllipseCommand(
-    Point startPoint,
+    final Point start,
     EllipseCommand ellipse, {
     double tolerance = defaultTolerance,
   }) {
-    final points = <Point>[startPoint];
+    final points = <Point>[start];
 
     // Calculate the starting point of the ellipse
-    final ellipseStartPoint = MathUtils.ellipsePoint(
+    final first = MathUtils.ellipsePoint(
       ellipse.centerX,
       ellipse.centerY,
       ellipse.radiusX,
@@ -308,17 +277,16 @@ class CurveUtils {
       ellipse.rotation,
       ellipse.startAngle,
     );
-    final ellipseStartX = ellipseStartPoint.x;
-    final ellipseStartY = ellipseStartPoint.y;
+    final firstX = first.x;
+    final firstY = first.y;
 
-    // Connect from startPoint to first point on ellipse if needed
-    if ((startPoint.x - ellipseStartX).abs() > 0.001 ||
-        (startPoint.y - ellipseStartY).abs() > 0.001) {
-      points.add(Point(ellipseStartX, ellipseStartY));
+    // Connect from start to first point on ellipse if needed
+    if ((start.x - firstX).abs() > 0.001 || (start.y - firstY).abs() > 0.001) {
+      points.add(Point(firstX, firstY));
     }
 
     // Tessellate the ellipse itself
-    final ellipsePoints = _tessellateEllipse(
+    final tessellated = _ellipse(
       ellipse.centerX,
       ellipse.centerY,
       ellipse.radiusX,
@@ -330,47 +298,46 @@ class CurveUtils {
     );
 
     // Skip the first point if it's the same as what we already added
-    final skipFirst =
-        ellipsePoints.isNotEmpty &&
-        (points.last - ellipsePoints.first).length < 0.001;
-    points.addAll(skipFirst ? ellipsePoints.skip(1) : ellipsePoints);
+    final duplicate =
+        tessellated.isNotEmpty &&
+        (points.last - tessellated.first).length < 0.001;
+    points.addAll(duplicate ? tessellated.skip(1) : tessellated);
 
     return points;
   }
 
-  /// Calculate perpendicular distance from point to line
-  static double _pointToLineDistance(
-    Point point,
-    Point lineStart,
-    Point lineEnd,
-  ) {
-    // Delegate to GeometryUtils for consistent distance calculation
-    return distanceToSegment(point, lineStart, lineEnd);
+  /// Calculate perpendicular distance from point to line segment
+  static double _distance(Point point, final Point start, final Point end) {
+    return distanceToSegment(point, start, end);
   }
 
   /// Find the closest point on a line segment to a given point
   static Point closestPointOnSegment(
     Point point,
-    Point segStart,
-    Point segEnd,
+    final Point start,
+    final Point end,
   ) {
-    final v = segEnd - segStart;
-    final w = point - segStart;
+    final v = end - start;
+    final w = point - start;
 
     final c1 = w.dot(v);
-    if (c1 <= 0) return segStart;
+    if (c1 <= 0) return start;
 
     final c2 = v.dot(v);
-    if (c1 >= c2) return segEnd;
+    if (c1 >= c2) return end;
 
     final t = c1 / c2;
-    return segStart + v * t;
+    return start + v * t;
   }
 
   /// Calculate the distance from a point to a line segment
-  static double distanceToSegment(Point point, Point segStart, Point segEnd) {
-    final closest = closestPointOnSegment(point, segStart, segEnd);
-    return point.distanceTo(closest);
+  static double distanceToSegment(
+    Point point,
+    final Point start,
+    final Point end,
+  ) {
+    final closest = closestPointOnSegment(point, start, end);
+    return point.distance(closest);
   }
 
   /// Flatten a cubic Bezier curve to a list of points
@@ -389,7 +356,7 @@ class CurveUtils {
       return flattenCubicBezierFixed(p0, p1, p2, p3, steps: steps);
     } else {
       // Adaptive mode (used by Stroker)
-      return _flattenCubicBezier(
+      return _adaptive(
         p0,
         p1,
         p2,
@@ -403,21 +370,21 @@ class CurveUtils {
   /// Flatten an arc command to a list of points
   /// Used by both Dasher and Stroker for path processing
   static List<Point> flattenArc(
-    Point currentPos,
+    final Point current,
     ArcCommand arc, {
     double tolerance = 0.1,
   }) {
-    return tessellateArcCommand(currentPos, arc, tolerance: tolerance);
+    return tessellateArcCommand(current, arc, tolerance: tolerance);
   }
 
   /// Flatten an ellipse command to a list of points
   /// Used by both Dasher and Stroker for path processing
   static List<Point> flattenEllipse(
-    Point currentPos,
+    final Point current,
     EllipseCommand ellipse, {
     double tolerance = 0.1,
   }) {
-    return tessellateEllipseCommand(currentPos, ellipse, tolerance: tolerance);
+    return tessellateEllipseCommand(current, ellipse, tolerance: tolerance);
   }
 
   /// Get extrema angles for an elliptical arc

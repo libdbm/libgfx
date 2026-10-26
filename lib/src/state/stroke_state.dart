@@ -3,11 +3,11 @@ import 'state_base.dart';
 
 /// Manages stroke styling state
 class StrokeState extends StateBase<StrokeState> {
-  double _strokeWidth;
-  LineJoin _lineJoin;
-  LineCap _lineCap;
-  double _miterLimit;
-  List<double>? _dashPattern;
+  double _width;
+  LineJoin _join;
+  LineCap _cap;
+  double _limit;
+  List<double>? _pattern;
 
   StrokeState({
     double strokeWidth = 1.0,
@@ -15,54 +15,46 @@ class StrokeState extends StateBase<StrokeState> {
     LineCap lineCap = LineCap.butt,
     double miterLimit = 4.0,
     List<double>? dashPattern,
-  }) : _strokeWidth = strokeWidth,
-       _lineJoin = lineJoin,
-       _lineCap = lineCap,
-       _miterLimit = miterLimit,
-       _dashPattern = dashPattern;
+  }) : _width = strokeWidth,
+       _join = lineJoin,
+       _cap = lineCap,
+       _limit = miterLimit,
+       _pattern = dashPattern;
 
-  double get strokeWidth => _strokeWidth;
-  LineJoin get lineJoin => _lineJoin;
-  LineCap get lineCap => _lineCap;
-  double get miterLimit => _miterLimit;
-  List<double>? get dashPattern => _dashPattern;
+  double get strokeWidth => _width;
+  LineJoin get lineJoin => _join;
+  LineCap get lineCap => _cap;
+  double get miterLimit => _limit;
+  List<double>? get dashPattern => _pattern;
 
   void setStrokeWidth(double width) {
-    _strokeWidth = StateBase.validatePositive(
-      width,
-      'strokeWidth',
-      1.0,
-    );
+    _width = StateBase.validatePositive(width, 1.0);
   }
 
   void setLineJoin(LineJoin join) {
-    _lineJoin = join;
+    _join = join;
   }
 
   void setLineCap(LineCap cap) {
-    _lineCap = cap;
+    _cap = cap;
   }
 
   void setMiterLimit(double limit) {
-    _miterLimit = StateBase.validatePositive(limit, 'miterLimit', 4.0);
+    _limit = StateBase.validatePositive(limit, 4.0);
   }
 
   void setDashPattern(List<double>? pattern) {
-    _dashPattern = pattern == null ? null : List.from(pattern);
-  }
-
-  bool hasDashPattern() {
-    return _dashPattern != null && _dashPattern!.isNotEmpty;
+    _pattern = pattern == null ? null : List.from(pattern);
   }
 
   @override
   StrokeState clone() {
     return StrokeState(
-      strokeWidth: _strokeWidth,
-      lineJoin: _lineJoin,
-      lineCap: _lineCap,
-      miterLimit: _miterLimit,
-      dashPattern: _dashPattern == null ? null : List.from(_dashPattern!),
+      strokeWidth: _width,
+      lineJoin: _join,
+      lineCap: _cap,
+      miterLimit: _limit,
+      dashPattern: _pattern == null ? null : List.from(_pattern!),
     );
   }
 }

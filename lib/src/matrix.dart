@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'point.dart';
+import 'result.dart';
 import 'utils/math_utils.dart';
 
 /// An optimized 2D transformation matrix using 6 components.
@@ -38,22 +39,22 @@ class Matrix2D {
   }
 
   /// Creates a scaling matrix.
-  factory Matrix2D.scaling(double sx, double sy) {
-    return Matrix2D(sx, 0.0, 0.0, sy, 0.0, 0.0);
+  factory Matrix2D.scaling(final double x, final double y) {
+    return Matrix2D(x, 0.0, 0.0, y, 0.0, 0.0);
   }
 
   /// Creates a rotation matrix.
   factory Matrix2D.rotation(double radians) {
-    final c = cos(radians);
-    final s = sin(radians);
-    return Matrix2D(c, s, -s, c, 0.0, 0.0);
+    final cosine = cos(radians);
+    final sine = sin(radians);
+    return Matrix2D(cosine, sine, -sine, cosine, 0.0, 0.0);
   }
 
   /// Creates a deep copy of this matrix.
   Matrix2D clone() => Matrix2D.copy(this);
 
   /// Resets this matrix to identity.
-  void setIdentity() {
+  void reset() {
     a = 1.0;
     b = 0.0;
     c = 0.0;
@@ -69,23 +70,23 @@ class Matrix2D {
   }
 
   /// Scales this matrix.
-  void scale(double sx, [double? sy]) {
-    sy ??= sx;
-    a *= sx;
-    b *= sx;
-    c *= sy;
-    d *= sy;
+  void scale(double x, [double? y]) {
+    y ??= x;
+    a *= x;
+    b *= x;
+    c *= y;
+    d *= y;
   }
 
   /// Rotates this matrix by the given angle in radians.
   void rotate(double radians) {
-    final cosR = cos(radians);
-    final sinR = sin(radians);
+    final cosine = cos(radians);
+    final sine = sin(radians);
 
-    final na = a * cosR + c * sinR;
-    final nb = b * cosR + d * sinR;
-    final nc = c * cosR - a * sinR;
-    final nd = d * cosR - b * sinR;
+    final na = a * cosine + c * sine;
+    final nb = b * cosine + d * sine;
+    final nc = c * cosine - a * sine;
+    final nd = d * cosine - b * sine;
 
     a = na;
     b = nb;
@@ -93,15 +94,12 @@ class Matrix2D {
     d = nd;
   }
 
-  /// Alias for rotate method (for compatibility with old Matrix2D API).
-  void rotateZ(double radians) => rotate(radians);
-
   /// Applies a shear transformation.
-  void shear(double shx, double shy) {
-    final na = a + c * shy;
-    final nb = b + d * shy;
-    final nc = c + a * shx;
-    final nd = d + b * shx;
+  void shear(double x, double y) {
+    final na = a + c * y;
+    final nb = b + d * y;
+    final nc = c + a * x;
+    final nd = d + b * x;
 
     a = na;
     b = nb;
@@ -110,84 +108,58 @@ class Matrix2D {
   }
 
   /// Transforms a point by this matrix.
-  Point transform(Point p) {
-    return Point(a * p.x + c * p.y + tx, b * p.x + d * p.y + ty);
+  Point transform(final Point point) {
+    return Point(
+      a * point.x + c * point.y + tx,
+      b * point.x + d * point.y + ty,
+    );
   }
 
   /// Transforms only the vector components (ignoring translation).
-  Point transformVector(Point v) {
-    return Point(a * v.x + c * v.y, b * v.x + d * v.y);
+  Point direction(final Point vector) {
+    return Point(a * vector.x + c * vector.y, b * vector.x + d * vector.y);
   }
 
-  /// Inverts this matrix in place with improved numerical stability.
-  /// Returns false if matrix is not invertible.
-  bool invert() {
+  /// Returns the inverse of this matrix without modifying it, or an
+  /// [ErrorKind.singular] error when the matrix has no usable inverse.
+  Result<Matrix2D, ErrorDetails> inverse() {
     final det = a * d - b * c;
 
     // Use relative tolerance for better numerical stability
-    final maxElement = [
+    final largest = [
       a.abs(),
       b.abs(),
       c.abs(),
       d.abs(),
     ].reduce((a, b) => a > b ? a : b);
-    final tolerance = maxElement * MathUtils.epsilon;
+    final tolerance = largest * MathUtils.epsilon;
 
-    if (det.abs() < tolerance) {
-      // Matrix is singular or nearly singular
-      // Set to identity to avoid NaN propagation
-      a = 1.0;
-      b = 0.0;
-      c = 0.0;
-      d = 1.0;
-      tx = 0.0;
-      ty = 0.0;
-      return false;
+    if (det.abs() < tolerance || det == 0) {
+      return Err(ErrorDetails(ErrorKind.singular, 'Matrix is singular: $this'));
     }
 
-    // Use more numerically stable computation
-    final invDet = 1.0 / det;
+    final reciprocal = 1.0 / det;
+    final result = Matrix2D(
+      d * reciprocal,
+      -b * reciprocal,
+      -c * reciprocal,
+      a * reciprocal,
+      (c * ty - d * tx) * reciprocal,
+      (b * tx - a * ty) * reciprocal,
+    );
 
-    // Calculate new values before assignment to avoid aliasing issues
-    final na = d * invDet;
-    final nb = -b * invDet;
-    final nc = -c * invDet;
-    final nd = a * invDet;
-    final ntx = (c * ty - d * tx) * invDet;
-    final nty = (b * tx - a * ty) * invDet;
-
-    // Check for NaN or infinity
-    if (!na.isFinite ||
-        !nb.isFinite ||
-        !nc.isFinite ||
-        !nd.isFinite ||
-        !ntx.isFinite ||
-        !nty.isFinite) {
-      // Numerical overflow, set to identity
-      a = 1.0;
-      b = 0.0;
-      c = 0.0;
-      d = 1.0;
-      tx = 0.0;
-      ty = 0.0;
-      return false;
+    if (!result.a.isFinite ||
+        !result.b.isFinite ||
+        !result.c.isFinite ||
+        !result.d.isFinite ||
+        !result.tx.isFinite ||
+        !result.ty.isFinite) {
+      return Err(
+        ErrorDetails(ErrorKind.singular, 'Matrix inverse overflows: $this'),
+      );
     }
 
-    a = na;
-    b = nb;
-    c = nc;
-    d = nd;
-    tx = ntx;
-    ty = nty;
-
-    return true;
-  }
-
-  /// Returns the inverse of this matrix without modifying it.
-  Matrix2D inverse() {
-    final result = Matrix2D.copy(this);
-    result.invert();
-    return result;
+    return Ok(result);
   }
 
   /// Multiplies this matrix by another matrix.
@@ -215,7 +187,7 @@ class Matrix2D {
   }
 
   /// Pre-multiplies this matrix by another matrix.
-  void preMultiply(Matrix2D other) {
+  void premultiply(Matrix2D other) {
     final na = other.a * a + other.c * b;
     final nb = other.b * a + other.d * b;
     final nc = other.a * c + other.c * d;
@@ -232,20 +204,20 @@ class Matrix2D {
   }
 
   /// Composes transformations: translation, rotation, scale.
-  void setTransform(
+  void assign(
     double x,
     double y,
     double rotation,
     double scaleX,
     double scaleY,
   ) {
-    final cosR = cos(rotation);
-    final sinR = sin(rotation);
+    final cosine = cos(rotation);
+    final sine = sin(rotation);
 
-    a = cosR * scaleX;
-    b = sinR * scaleX;
-    c = -sinR * scaleY;
-    d = cosR * scaleY;
+    a = cosine * scaleX;
+    b = sine * scaleX;
+    c = -sine * scaleY;
+    d = cosine * scaleY;
     tx = x;
     ty = y;
   }
@@ -265,18 +237,16 @@ class Matrix2D {
       tx.abs() < MathUtils.epsilon &&
       ty.abs() < MathUtils.epsilon;
 
-  /// Decomposes the matrix into translation, rotation, and scale components.
-  void decompose(Point translation, List<double> rotation, Point scale) {
-    translation.x = tx;
-    translation.y = ty;
-
+  /// Decomposes the matrix into translation, rotation (radians), and scale
+  /// components.
+  ({Point translation, double rotation, Point scale}) decompose() {
     final sx = sqrt(a * a + b * b);
     final sy = sqrt(c * c + d * d) * (determinant < 0 ? -1 : 1);
-
-    scale.x = sx;
-    scale.y = sy;
-
-    rotation[0] = atan2(b, a);
+    return (
+      translation: Point(tx, ty),
+      rotation: atan2(b, a),
+      scale: Point(sx, sy),
+    );
   }
 
   @override

@@ -4,43 +4,31 @@ import 'state_base.dart';
 
 /// Manages clipping state
 class ClipState extends StateBase<ClipState> {
-  Path? _clipPath;
-  ClipRegion? _clipRegion;
+  Path? _path;
+  ClipRegion? _region;
 
   ClipState({Path? clipPath, ClipRegion? clipRegion})
-    : _clipPath = clipPath,
-      _clipRegion = clipRegion;
+    : _path = clipPath,
+      _region = clipRegion;
 
-  Path? get clipPath => _clipPath;
-  ClipRegion? get clipRegion => _clipRegion;
+  Path? get clipPath => _path;
+  ClipRegion? get clipRegion => _region;
 
   void setClipPath(Path path) {
-    _clipPath = path.clone();
+    _path = path.clone();
   }
 
   void setClipRegion(ClipRegion region) {
-    _clipRegion = region;
-  }
-
-  void intersectClipRegion(ClipRegion region) {
-    if (_clipRegion != null) {
-      _clipRegion = _clipRegion!.intersect(region);
-    } else {
-      _clipRegion = region;
-    }
+    _region = region;
   }
 
   void clearClip() {
-    _clipPath = null;
-    _clipRegion = null;
-  }
-
-  bool hasClip() {
-    return _clipPath != null || _clipRegion != null;
+    _path = null;
+    _region = null;
   }
 
   @override
   ClipState clone() {
-    return ClipState(clipPath: _clipPath?.clone(), clipRegion: _clipRegion);
+    return ClipState(clipPath: _path?.clone(), clipRegion: _region);
   }
 }

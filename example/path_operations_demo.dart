@@ -3,14 +3,20 @@ import 'dart:math' as math;
 import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
 
-final _random = math.Random();
+// A fixed seed makes every run draw the same image
+final _random = math.Random(42);
 TTFFont? _font;
 
 Future<void> main() async {
   const filesystem = LocalGraphicsFileSystem();
   _font = await _loadDemoFont(filesystem);
 
-  final engine = GraphicsEngine(1200, 800, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+
+  // page units
+
+  final engine = GraphicsEngine(2 * 1200, 2 * 800, filesystem: filesystem)
+    ..scale(2, 2);
 
   // Set background
   engine.clear(const Color(0xFF1a1a1a));
@@ -20,7 +26,7 @@ Future<void> main() async {
   demonstratePathOffset(engine);
   demonstrateBooleanOperations(engine);
 
-  await engine.saveToFile('output/path_operations_demo.ppm');
+  await engine.write('output/path_operations_demo.ppm');
   print('Saved output/path_operations_demo.ppm');
 }
 
@@ -32,13 +38,12 @@ Future<TTFFont?> _loadDemoFont(LocalGraphicsFileSystem filesystem) async {
   ];
 
   for (final path in candidates) {
-    try {
-      final font = await TTFFont.loadFromFile(path, filesystem: filesystem);
+    final result = await TTFFont.load(path, filesystem: filesystem);
+    if (result case Ok(:final value)) {
       print('Loaded font for labels: $path');
-      return font;
-    } catch (_) {
-      // Try next candidate.
+      return value;
     }
+    // Otherwise try the next candidate.
   }
 
   print('Could not load any demo font; labels will be skipped.');
@@ -62,12 +67,12 @@ void demonstratePathSimplification(GraphicsEngine engine) {
   final complexPath = complexBuilder.build();
 
   // Draw original path in red
-  engine.setStrokeColor(const Color(0xFFFF4444));
-  engine.setLineWidth(2);
+  engine.strokeStyle = const Color(0xFFFF4444);
+  engine.lineWidth = 2;
   engine.stroke(complexPath);
 
   // Draw control points
-  engine.setFillColor(const Color(0xFFFF4444));
+  engine.fillStyle = const Color(0xFFFF4444);
   for (final command in complexPath.commands) {
     if (command.type == PathCommandType.lineTo ||
         command.type == PathCommandType.moveTo) {
@@ -81,11 +86,11 @@ void demonstratePathSimplification(GraphicsEngine engine) {
 
   // Draw simplified paths
   engine.translate(0, 80);
-  engine.setStrokeColor(const Color(0xFF44FF44));
-  engine.setLineWidth(3);
+  engine.strokeStyle = const Color(0xFF44FF44);
+  engine.lineWidth = 3;
   engine.stroke(simplifiedStrict);
 
-  engine.setFillColor(const Color(0xFF44FF44));
+  engine.fillStyle = const Color(0xFF44FF44);
   for (final command in simplifiedStrict.commands) {
     if (command.type == PathCommandType.lineTo ||
         command.type == PathCommandType.moveTo) {
@@ -94,11 +99,11 @@ void demonstratePathSimplification(GraphicsEngine engine) {
   }
 
   engine.translate(0, 80);
-  engine.setStrokeColor(const Color(0xFF4444FF));
-  engine.setLineWidth(4);
+  engine.strokeStyle = const Color(0xFF4444FF);
+  engine.lineWidth = 4;
   engine.stroke(simplifiedLoose);
 
-  engine.setFillColor(const Color(0xFF4444FF));
+  engine.fillStyle = const Color(0xFF4444FF);
   for (final command in simplifiedLoose.commands) {
     if (command.type == PathCommandType.lineTo ||
         command.type == PathCommandType.moveTo) {
@@ -156,13 +161,13 @@ void demonstratePathOffset(GraphicsEngine engine) {
       starBuilder.lineTo(x, y);
     }
   }
-  starBuilder.close();
+  starBuilder.closePath();
   final starPath = starBuilder.build();
 
   // Draw original star
-  engine.setFillColor(const Color(0x40FFFF00));
-  engine.setStrokeColor(const Color(0xFFFFFF00));
-  engine.setLineWidth(2);
+  engine.fillStyle = const Color(0x40FFFF00);
+  engine.strokeStyle = const Color(0xFFFFFF00);
+  engine.lineWidth = 2;
   engine.fill(starPath);
   engine.stroke(starPath);
 
@@ -170,10 +175,10 @@ void demonstratePathOffset(GraphicsEngine engine) {
   final outwardOffset = PathOperations.offset(starPath, 10);
   final inwardOffset = PathOperations.offset(starPath, -10);
 
-  engine.setStrokeColor(const Color(0xFF00FF00));
+  engine.strokeStyle = const Color(0xFF00FF00);
   engine.stroke(outwardOffset);
 
-  engine.setStrokeColor(const Color(0xFFFF00FF));
+  engine.strokeStyle = const Color(0xFFFF00FF);
   engine.stroke(inwardOffset);
 
   // Labels
@@ -192,7 +197,7 @@ void demonstrateBooleanOperations(GraphicsEngine engine) {
     ..lineTo(100, 0)
     ..lineTo(100, 80)
     ..lineTo(0, 80)
-    ..close();
+    ..closePath();
   final rect1 = rect1Builder.build();
 
   final circle1Builder = PathBuilder();
@@ -212,19 +217,19 @@ void demonstrateBooleanOperations(GraphicsEngine engine) {
       circle1Builder.lineTo(x, y);
     }
   }
-  circle1Builder.close();
+  circle1Builder.closePath();
   final circle1 = circle1Builder.build();
 
   // Draw original shapes
-  engine.setFillColor(const Color(0x60FF0000));
+  engine.fillStyle = const Color(0x60FF0000);
   engine.fill(rect1);
-  engine.setFillColor(const Color(0x600000FF));
+  engine.fillStyle = const Color(0x600000FF);
   engine.fill(circle1);
 
-  engine.setStrokeColor(const Color(0xFFFF0000));
-  engine.setLineWidth(2);
+  engine.strokeStyle = const Color(0xFFFF0000);
+  engine.lineWidth = 2;
   engine.stroke(rect1);
-  engine.setStrokeColor(const Color(0xFF0000FF));
+  engine.strokeStyle = const Color(0xFF0000FF);
   engine.stroke(circle1);
 
   // Demonstrate boolean operations
@@ -242,9 +247,9 @@ void demonstrateBooleanOperations(GraphicsEngine engine) {
     engine.translate((i % 2) * 150, (i ~/ 2) * 120 + 150);
 
     // Draw result
-    engine.setFillColor(const Color(0x8000FF00));
-    engine.setStrokeColor(const Color(0xFF00FF00));
-    engine.setLineWidth(2);
+    engine.fillStyle = const Color(0x8000FF00);
+    engine.strokeStyle = const Color(0xFF00FF00);
+    engine.lineWidth = 2;
 
     if (result.commands.isNotEmpty) {
       engine.fill(result);
@@ -252,8 +257,8 @@ void demonstrateBooleanOperations(GraphicsEngine engine) {
     }
 
     // Draw original shapes as outlines for context
-    engine.setStrokeColor(const Color(0x80FFFFFF));
-    engine.setLineWidth(1);
+    engine.strokeStyle = const Color(0x80FFFFFF);
+    engine.lineWidth = 1;
     engine.stroke(rect1);
     engine.stroke(circle1);
 
@@ -278,8 +283,8 @@ void drawLabel(
   if (_font == null) return;
   engine.save();
   engine.translate(x, y);
-  engine.setFillColor(color);
-  final path = _font!.getTextPath(text, 0, 0, 12);
+  engine.fillStyle = color;
+  final path = _font!.path(text, 0, 0, 12);
   engine.fill(path);
   engine.restore();
 }
@@ -287,7 +292,7 @@ void drawLabel(
 void drawPoint(GraphicsEngine engine, Point point, double radius) {
   engine.save();
   engine.translate(point.x, point.y);
-  engine.setFillColor(const Color(0xFFFFFFFF));
-  engine.fillCircle(0, 0, radius);
+  engine.fillStyle = const Color(0xFFFFFFFF);
+  engine.fill(PathBuilder().circle(0, 0, radius).build());
   engine.restore();
 }

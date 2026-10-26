@@ -8,7 +8,10 @@ Future<void> main() async {
   final height = 600;
 
   const filesystem = LocalGraphicsFileSystem();
-  final engine = GraphicsEngine(width, height, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+  // page units
+  final engine = GraphicsEngine(2 * width, 2 * height, filesystem: filesystem)
+    ..scale(2, 2);
 
   // Clear background with a dark blue
   engine.clear(const Color.fromARGB(255, 20, 30, 60));
@@ -40,7 +43,7 @@ Future<void> main() async {
       );
     }
 
-    builder.close();
+    builder.closePath();
     return builder.build();
   }
 
@@ -65,7 +68,7 @@ Future<void> main() async {
         .circle(150 - i * 2, 150 - i * 2, 100 - i * 3)
         .build();
 
-    engine.setFillColor(color);
+    engine.fillStyle = color;
     engine.fill(circlePath);
   }
 
@@ -85,7 +88,7 @@ Future<void> main() async {
   builder2.lineTo(250, 50);
   builder2.lineTo(250, 250);
   builder2.lineTo(50, 250);
-  builder2.close();
+  builder2.closePath();
 
   // Inner star (counter-clockwise for hole)
   final starCenterX = 150.0;
@@ -110,17 +113,17 @@ Future<void> main() async {
       starCenterY + radius * math.sin(angle),
     );
   }
-  builder2.close();
+  builder2.closePath();
 
   final squareWithStarHole = builder2.build();
 
   // Fill the square with star cutout
-  engine.setFillColor(const Color.fromARGB(255, 255, 200, 50));
+  engine.fillStyle = const Color.fromARGB(255, 255, 200, 50);
   engine.fill(squareWithStarHole);
 
   // Add some stripes behind to show the hole
-  engine.setStrokeColor(const Color.fromARGB(255, 100, 150, 255));
-  engine.setLineWidth(3);
+  engine.strokeStyle = const Color.fromARGB(255, 100, 150, 255);
+  engine.lineWidth = 3;
   for (int i = 0; i < 15; i++) {
     final y = 50.0 + i * 15;
     final linePath = PathBuilder().moveTo(40, y).lineTo(260, y).build();
@@ -152,7 +155,7 @@ Future<void> main() async {
       hexBuilder.lineTo(x, y);
     }
   }
-  hexBuilder.close();
+  hexBuilder.closePath();
 
   engine.clip(hexBuilder.build());
 
@@ -174,7 +177,7 @@ Future<void> main() async {
         .circle(positions[i][0], positions[i][1], 50)
         .build();
 
-    engine.setFillColor(colors[i]);
+    engine.fillStyle = colors[i];
     engine.fill(circlePath);
   }
 
@@ -201,7 +204,7 @@ Future<void> main() async {
             .lineTo((col + 1) * squareSize, row * squareSize)
             .lineTo((col + 1) * squareSize, (row + 1) * squareSize)
             .lineTo(col * squareSize, (row + 1) * squareSize)
-            .close()
+            .closePath()
             .build();
 
         // Alternate between two colors
@@ -209,7 +212,7 @@ Future<void> main() async {
             ? const Color.fromARGB(255, 255, 120, 180)
             : const Color.fromARGB(255, 120, 180, 255);
 
-        engine.setFillColor(color);
+        engine.fillStyle = color;
         engine.fill(squarePath);
       }
     }
@@ -217,14 +220,14 @@ Future<void> main() async {
 
   // Draw a star in the center
   final centerStar = createStarPath(150, 150, 40, 20, 8);
-  engine.setFillColor(const Color.fromARGB(255, 255, 255, 100));
+  engine.fillStyle = const Color.fromARGB(255, 255, 255, 100);
   engine.fill(centerStar);
 
   engine.restore();
 
   // Add labels for each demo
-  engine.setStrokeColor(const Color.fromARGB(255, 200, 200, 200));
-  engine.setLineWidth(1);
+  engine.strokeStyle = const Color.fromARGB(255, 200, 200, 200);
+  engine.lineWidth = 1;
 
   // Draw dividing lines
   final hLine = PathBuilder().moveTo(0, 300).lineTo(600, 300).build();
@@ -244,17 +247,17 @@ Future<void> main() async {
           .lineTo(x + 290, y + 10)
           .lineTo(x + 290, y + 290)
           .lineTo(x + 10, y + 290)
-          .close()
+          .closePath()
           .build();
 
-      engine.setStrokeColor(const Color.fromARGB(100, 255, 255, 255));
-      engine.setLineWidth(0.5);
+      engine.strokeStyle = const Color.fromARGB(100, 255, 255, 255);
+      engine.lineWidth = 0.5;
       engine.stroke(borderPath);
     }
   }
 
   // Save to file
-  await engine.saveToFile('output/clip_demo.ppm');
+  await engine.write('output/clip_demo.ppm');
   print(
     'Saved output/clip_demo.ppm - Demonstrates various clipping region shapes:',
   );

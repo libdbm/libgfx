@@ -1,28 +1,21 @@
 import 'dart:math' as math;
 
 import '../rasterize/implementations/basic_rasterizer.dart';
+import '../rasterize/rasterizer.dart';
 import 'bounds_calculator.dart';
 import 'winding_calculator.dart';
 import '../matrix.dart';
 import '../paths/path.dart';
 import '../point.dart';
 import '../rectangle.dart';
+import '../result.dart';
 import '../spans/span.dart';
 import '../utils/math_utils.dart';
-
-/// Fill rule for determining interior of a path
-enum FillRule {
-  /// Even-odd fill rule (alternating)
-  evenOdd,
-
-  /// Non-zero winding fill rule
-  nonZero,
-}
 
 /// Represents a clipping region with support for fill rules and hit testing
 class ClipRegion {
   /// Pre-rasterized spans organized by scanline for fast lookup
-  final Map<int, List<Span>> spansByY;
+  final Map<int, List<Span>> rows;
 
   /// Bounding rectangle of the clip region
   final Rectangle<int> bounds;
@@ -31,121 +24,105 @@ class ClipRegion {
   final Path? path;
 
   /// Fill rule for path-based clipping
-  final FillRule fillRule;
+  final FillRule rule;
 
   /// Transform applied to the path
   final Matrix2D transform;
 
   ClipRegion({
-    required this.spansByY,
+    required this.rows,
     required this.bounds,
     this.path,
-    this.fillRule = FillRule.evenOdd,
+    this.rule = FillRule.evenOdd,
     Matrix2D? transform,
   }) : transform = transform ?? Matrix2D.identity();
 
   /// Create a deep copy of this clip region.
   ClipRegion clone() {
-    final clonedSpans = <int, List<Span>>{};
-    for (final entry in spansByY.entries) {
-      clonedSpans[entry.key] = entry.value
+    final copy = <int, List<Span>>{};
+    for (final entry in rows.entries) {
+      copy[entry.key] = entry.value
           .map((span) => Span(span.y, span.x, span.length, span.coverage))
           .toList(growable: false);
     }
 
     return ClipRegion(
-      spansByY: clonedSpans,
+      rows: copy,
       bounds: Rectangle(bounds.left, bounds.top, bounds.width, bounds.height),
       path: path?.clone(),
-      fillRule: fillRule,
+      rule: rule,
       transform: Matrix2D.copy(transform),
     );
   }
 
-  /// Creates a clip region from a path
+  /// Creates a clip region from a path, rasterized with [rasterizer]
+  /// (a [BasicRasterizer] when omitted).
   factory ClipRegion.fromPath(
     Path path,
     Matrix2D transform,
     int width,
     int height, {
-    FillRule fillRule = FillRule.evenOdd,
+    FillRule rule = FillRule.evenOdd,
+    Rasterizer? rasterizer,
   }) {
-    final rasterizer = BasicRasterizer();
-    final transformedPath = path.transform(transform);
-    final spans = rasterizer.rasterize(transformedPath);
+    rasterizer ??= BasicRasterizer();
+    final transformed = path.transform(transform);
+    final spans = rasterizer.rasterize(
+      transformed,
+      rule: rule,
+      viewport: Rectangle(0, 0, width, height),
+    );
 
     if (spans.isEmpty) {
       return ClipRegion.empty();
     }
 
     // Organize spans by scanline
-    final spansByY = <int, List<Span>>{};
+    final rows = <int, List<Span>>{};
     int minX = width, maxX = 0;
     int minY = height, maxY = 0;
 
     for (final span in spans) {
       if (span.y >= 0 && span.y < height) {
-        final clippedSpan = _clipSpanToWidth(span, width);
-        if (clippedSpan != null && clippedSpan.length > 0) {
-          (spansByY[span.y] ??= []).add(clippedSpan);
-          minX = math.min(minX, clippedSpan.x1);
-          maxX = math.max(maxX, clippedSpan.x1 + clippedSpan.length);
-          minY = math.min(minY, clippedSpan.y);
-          maxY = math.max(maxY, clippedSpan.y);
+        final clipped = _crop(span, width);
+        if (clipped != null && clipped.length > 0) {
+          (rows[span.y] ??= []).add(clipped);
+          minX = math.min(minX, clipped.x1);
+          maxX = math.max(maxX, clipped.x1 + clipped.length);
+          minY = math.min(minY, clipped.y);
+          maxY = math.max(maxY, clipped.y);
         }
       }
     }
 
-    // Apply fill rule for non-zero winding if needed
-    final processedSpans = fillRule == FillRule.nonZero
-        ? _applyNonZeroFillRule(spansByY, width, height)
-        : spansByY;
-
-    if (processedSpans.isEmpty) {
+    if (rows.isEmpty) {
       return ClipRegion.empty();
-    }
-
-    // Recalculate bounds after fill rule processing
-    minX = width;
-    maxX = 0;
-    minY = height;
-    maxY = 0;
-    for (final entry in processedSpans.entries) {
-      for (final span in entry.value) {
-        minX = math.min(minX, span.x1);
-        maxX = math.max(maxX, span.x1 + span.length);
-        minY = math.min(minY, span.y);
-        maxY = math.max(maxY, span.y);
-      }
     }
 
     final bounds = Rectangle(minX, minY, maxX - minX, maxY - minY + 1);
     return ClipRegion(
-      spansByY: processedSpans,
+      rows: rows,
       bounds: bounds,
       path: path,
-      fillRule: fillRule,
+      rule: rule,
       transform: transform,
     );
   }
 
   /// Creates a rectangular clip region
   factory ClipRegion.fromRect(int x, int y, int width, int height) {
-    final spansByY = <int, List<Span>>{};
+    final rows = <int, List<Span>>{};
 
-    for (int sy = y; sy < y + height; sy++) {
-      spansByY[sy] = [Span.from(sy, x, x + width)];
+    for (int row = y; row < y + height; row++) {
+      rows[row] = [Span.from(row, x, x + width)];
     }
 
-    return ClipRegion(
-      spansByY: spansByY,
-      bounds: Rectangle(x, y, width, height),
-    );
+    return ClipRegion(rows: rows, bounds: Rectangle(x, y, width, height));
   }
 
   /// Creates an empty clip region
   factory ClipRegion.empty() {
-    return ClipRegion(spansByY: {}, bounds: Rectangle(0, 0, 0, 0));
+    return ClipRegion(rows: {}, bounds: Rectangle(0, 0, 0, 0));
   }
 
   /// Intersects this clip region with another
@@ -154,20 +131,20 @@ class ClipRegion {
       return ClipRegion.empty();
     }
 
-    final resultSpans = <int, List<Span>>{};
+    final result = <int, List<Span>>{};
     int minX = bounds.width, maxX = 0;
     int minY = bounds.height, maxY = 0;
 
     // Only process scanlines that exist in both regions
-    for (final y in spansByY.keys) {
-      if (!other.spansByY.containsKey(y)) continue;
+    for (final y in rows.keys) {
+      if (!other.rows.containsKey(y)) continue;
 
-      final spans1 = spansByY[y]!;
-      final spans2 = other.spansByY[y]!;
-      final intersected = _intersectSpansOnScanline(spans1, spans2);
+      final spans1 = rows[y]!;
+      final spans2 = other.rows[y]!;
+      final intersected = _overlap(spans1, spans2);
 
       if (intersected.isNotEmpty) {
-        resultSpans[y] = intersected;
+        result[y] = intersected;
         for (final span in intersected) {
           minX = math.min(minX, span.x1);
           maxX = math.max(maxX, span.x2);
@@ -177,30 +154,30 @@ class ClipRegion {
       }
     }
 
-    if (resultSpans.isEmpty) {
+    if (result.isEmpty) {
       return ClipRegion.empty();
     }
 
     return ClipRegion(
-      spansByY: resultSpans,
+      rows: result,
       bounds: Rectangle(minX, minY, maxX - minX, maxY - minY + 1),
     );
   }
 
   /// Intersects spans with this clip region
-  List<Span> clipSpans(List<Span> spans) {
+  List<Span> clip(List<Span> spans) {
     final result = <Span>[];
 
     for (final span in spans) {
-      if (!spansByY.containsKey(span.y)) continue;
+      if (!rows.containsKey(span.y)) continue;
 
-      final clipSpans = spansByY[span.y]!;
-      for (final clipSpan in clipSpans) {
-        final x1 = math.max(span.x1, clipSpan.x1);
-        final x2 = math.min(span.x2, clipSpan.x2);
-        if (x1 < x2) {
-          // Preserve coverage from original span when clipping
-          result.add(Span(span.y, x1, x2 - x1, span.coverage));
+      final clip = rows[span.y]!;
+      for (final mask in clip) {
+        final x1 = math.max(span.x1, mask.x1);
+        final x2 = math.min(span.x2, mask.x2);
+        final coverage = MathUtils.mul255(span.coverage, mask.coverage);
+        if (x1 < x2 && coverage > 0) {
+          result.add(Span(span.y, x1, x2 - x1, coverage));
         }
       }
     }
@@ -209,51 +186,58 @@ class ClipRegion {
   }
 
   /// Tests if a point is inside the clip region using pre-rasterized spans
-  bool contains(int x, int y) {
+  bool contains(int x, int y) => coverage(x, y) > 0;
+
+  /// Clip coverage (0-255) of the pixel at [x], [y]; 0 outside the region.
+  int coverage(int x, int y) {
     if (x < bounds.left ||
         x >= bounds.left + bounds.width ||
         y < bounds.top ||
         y >= bounds.top + bounds.height) {
-      return false;
+      return 0;
     }
 
-    final spans = spansByY[y];
+    final spans = rows[y];
     if (spans == null) {
-      return false;
+      return 0;
     }
 
     for (final span in spans) {
-      if (x >= span.x1 && x < span.x2) return true;
+      if (x >= span.x1 && x < span.x2) return span.coverage;
     }
 
-    return false;
+    return 0;
   }
 
   /// Tests if a point is inside the clip region using the path and fill rule
-  bool containsPoint(Point point) {
+  bool includes(Point point) {
     // If we have a path, use it for accurate hit testing
     if (path != null) {
       // Quick bounds check
-      final doubleBounds = Rectangle<double>(
+      final box = Rectangle<double>(
         bounds.left.toDouble(),
         bounds.top.toDouble(),
         bounds.width.toDouble(),
         bounds.height.toDouble(),
       );
-      if (!_boundsContainsPoint(point, doubleBounds)) {
+      if (!_within(point, box)) {
         return false;
       }
 
-      // Transform point to path space
-      final inverseTransform = Matrix2D.copy(transform);
-      inverseTransform.invert();
-      final localPoint = inverseTransform.transform(point);
+      // Transform point to path space; a singular transform has no interior
+      final Point local;
+      switch (transform.inverse()) {
+        case Ok(:final value):
+          local = value.transform(point);
+        case Err():
+          return false;
+      }
 
       // Apply fill rule
-      if (fillRule == FillRule.evenOdd) {
-        return _isInsideEvenOdd(localPoint, path!);
+      if (rule == FillRule.evenOdd) {
+        return _evenOdd(local, path!);
       } else {
-        return _isInsideNonZero(localPoint, path!);
+        return _nonZero(local, path!);
       }
     }
 
@@ -261,10 +245,10 @@ class ClipRegion {
     return contains(point.x.round(), point.y.round());
   }
 
-  bool get isEmpty => spansByY.isEmpty;
+  bool get isEmpty => rows.isEmpty;
 
   /// Calculate bounds for a path
-  Rectangle<double> calculatePathBounds() {
+  Rectangle<double> extent() {
     if (path == null) {
       return Rectangle<double>(
         bounds.left.toDouble(),
@@ -279,31 +263,30 @@ class ClipRegion {
   /// Convert to rasterized spans for clipping
   Map<int, List<Span>> rasterize(int width, int height) {
     // If we already have rasterized spans, return them
-    if (spansByY.isNotEmpty) {
-      return spansByY;
+    if (rows.isNotEmpty) {
+      return rows;
     }
 
     // If we have a path, rasterize it
     if (path != null) {
-      final transformedPath = path!.transform(transform);
+      final transformed = path!.transform(transform);
       final rasterizer = BasicRasterizer();
-      final spans = rasterizer.rasterize(transformedPath);
+      final spans = rasterizer.rasterize(
+        transformed,
+        rule: rule,
+        viewport: Rectangle(0, 0, width, height),
+      );
 
       // Organize spans by scanline and clip to bounds
       final result = <int, List<Span>>{};
 
       for (final span in spans) {
         if (span.y >= 0 && span.y < height) {
-          final clippedSpan = _clipSpanToWidth(span, width);
-          if (clippedSpan != null && clippedSpan.length > 0) {
-            (result[span.y] ??= []).add(clippedSpan);
+          final clipped = _crop(span, width);
+          if (clipped != null && clipped.length > 0) {
+            (result[span.y] ??= []).add(clipped);
           }
         }
-      }
-
-      // Apply fill rule for non-zero winding if needed
-      if (fillRule == FillRule.nonZero) {
-        return _applyNonZeroFillRule(result, width, height);
       }
 
       return result;
@@ -313,7 +296,7 @@ class ClipRegion {
   }
 
   /// Helper method to check if a point is in bounds
-  bool _boundsContainsPoint(Point p, Rectangle<double> bounds) {
+  bool _within(Point p, Rectangle<double> bounds) {
     return p.x >= bounds.left &&
         p.x <= bounds.left + bounds.width &&
         p.y >= bounds.top &&
@@ -321,47 +304,47 @@ class ClipRegion {
   }
 
   /// Test if a point is inside using even-odd rule
-  bool _isInsideEvenOdd(Point testPoint, Path path) {
+  bool _evenOdd(final Point point, Path path) {
     int crossings = 0;
-    Point? lastPoint;
-    Point? startPoint;
+    Point? last;
+    Point? start;
 
-    for (final cmd in path.commands) {
-      switch (cmd.type) {
+    for (final command in path.commands) {
+      switch (command.type) {
         case PathCommandType.moveTo:
-          lastPoint = cmd.points.first;
-          startPoint = lastPoint;
+          last = command.points.first;
+          start = last;
           break;
 
         case PathCommandType.lineTo:
-          if (lastPoint != null) {
-            if (_lineIntersectsRay(lastPoint, cmd.points.first, testPoint)) {
+          if (last != null) {
+            if (_crosses(last, command.points.first, point)) {
               crossings++;
             }
-            lastPoint = cmd.points.first;
+            last = command.points.first;
           }
           break;
 
         case PathCommandType.cubicCurveTo:
-          if (lastPoint != null) {
+          if (last != null) {
             // Approximate cubic with lines
-            crossings += _cubicCrossingCount(
-              lastPoint,
-              cmd.points[0],
-              cmd.points[1],
-              cmd.points[2],
-              testPoint,
+            crossings += _cubic(
+              last,
+              command.points[0],
+              command.points[1],
+              command.points[2],
+              point,
             );
-            lastPoint = cmd.points[2];
+            last = command.points[2];
           }
           break;
 
         case PathCommandType.arc:
-          if (lastPoint != null) {
-            final arc = cmd as ArcCommand;
-            crossings += _arcCrossingCount(arc, lastPoint, testPoint);
+          if (last != null) {
+            final arc = command as ArcCommand;
+            crossings += _arc(arc, last, point);
             // Update last point to arc end
-            lastPoint = MathUtils.circlePoint(
+            last = MathUtils.circlePoint(
               arc.centerX,
               arc.centerY,
               arc.radius,
@@ -371,10 +354,10 @@ class ClipRegion {
           break;
 
         case PathCommandType.ellipse:
-          if (lastPoint != null) {
-            final ellipse = cmd as EllipseCommand;
-            crossings += _ellipseCrossingCount(ellipse, lastPoint, testPoint);
-            lastPoint = MathUtils.ellipsePoint(
+          if (last != null) {
+            final ellipse = command as EllipseCommand;
+            crossings += _ellipse(ellipse, last, point);
+            last = MathUtils.ellipsePoint(
               ellipse.centerX,
               ellipse.centerY,
               ellipse.radiusX,
@@ -386,11 +369,11 @@ class ClipRegion {
           break;
 
         case PathCommandType.close:
-          if (lastPoint != null && startPoint != null) {
-            if (_lineIntersectsRay(lastPoint, startPoint, testPoint)) {
+          if (last != null && start != null) {
+            if (_crosses(last, start, point)) {
               crossings++;
             }
-            lastPoint = startPoint;
+            last = start;
           }
           break;
       }
@@ -400,44 +383,38 @@ class ClipRegion {
   }
 
   /// Test if a point is inside using non-zero winding rule
-  bool _isInsideNonZero(Point testPoint, Path path) {
-    final winding = WindingCalculator.calculateWindingNumber(testPoint, path);
+  bool _nonZero(final Point point, Path path) {
+    final winding = WindingCalculator.calculateWindingNumber(point, path);
     return winding != 0;
   }
 
   /// Check if a line segment crosses a ray from point going right
-  bool _lineIntersectsRay(Point p1, Point p2, Point testPoint) {
+  bool _crosses(Point p1, Point p2, final Point point) {
     // Check if line segment is entirely above or below the ray
-    if ((p1.y > testPoint.y && p2.y > testPoint.y) ||
-        (p1.y <= testPoint.y && p2.y <= testPoint.y)) {
+    if ((p1.y > point.y && p2.y > point.y) ||
+        (p1.y <= point.y && p2.y <= point.y)) {
       return false;
     }
 
     // Calculate X coordinate of intersection
-    final t = (testPoint.y - p1.y) / (p2.y - p1.y);
-    final intersectionX = p1.x + t * (p2.x - p1.x);
+    final t = (point.y - p1.y) / (p2.y - p1.y);
+    final x = p1.x + t * (p2.x - p1.x);
 
-    return intersectionX >= testPoint.x;
+    return x > point.x;
   }
 
   /// Count ray crossings for a cubic curve
-  int _cubicCrossingCount(
-    Point p0,
-    Point p1,
-    Point p2,
-    Point p3,
-    Point testPoint,
-  ) {
+  int _cubic(Point p0, Point p1, Point p2, Point p3, final Point point) {
     int crossings = 0;
     const steps = 10;
 
     for (int i = 1; i <= steps; i++) {
       final t1 = (i - 1) / steps;
       final t2 = i / steps;
-      final pt1 = MathUtils.cubicBezier(p0, p1, p2, p3, t1);
-      final pt2 = MathUtils.cubicBezier(p0, p1, p2, p3, t2);
+      final start = MathUtils.cubicBezier(p0, p1, p2, p3, t1);
+      final end = MathUtils.cubicBezier(p0, p1, p2, p3, t2);
 
-      if (_lineIntersectsRay(pt1, pt2, testPoint)) {
+      if (_crosses(start, end, point)) {
         crossings++;
       }
     }
@@ -446,45 +423,41 @@ class ClipRegion {
   }
 
   /// Count ray crossings for an arc
-  int _arcCrossingCount(ArcCommand arc, Point lastPoint, Point testPoint) {
+  int _arc(ArcCommand arc, final Point start, final Point point) {
     int crossings = 0;
     const segments = 16;
-    Point prevPoint = lastPoint;
+    Point previous = start;
 
     for (int i = 1; i <= segments; i++) {
       final t = i / segments;
       final angle = arc.startAngle + t * (arc.endAngle - arc.startAngle);
-      final point = MathUtils.circlePoint(
+      final next = MathUtils.circlePoint(
         arc.centerX,
         arc.centerY,
         arc.radius,
         angle,
       );
 
-      if (_lineIntersectsRay(prevPoint, point, testPoint)) {
+      if (_crosses(previous, next, point)) {
         crossings++;
       }
-      prevPoint = point;
+      previous = next;
     }
 
     return crossings;
   }
 
   /// Count ray crossings for an ellipse
-  int _ellipseCrossingCount(
-    EllipseCommand ellipse,
-    Point lastPoint,
-    Point testPoint,
-  ) {
+  int _ellipse(EllipseCommand ellipse, final Point start, final Point point) {
     int crossings = 0;
     const segments = 16;
-    Point prevPoint = lastPoint;
+    Point previous = start;
 
     for (int i = 1; i <= segments; i++) {
       final t = i / segments;
       final angle =
           ellipse.startAngle + t * (ellipse.endAngle - ellipse.startAngle);
-      final point = MathUtils.ellipsePoint(
+      final next = MathUtils.ellipsePoint(
         ellipse.centerX,
         ellipse.centerY,
         ellipse.radiusX,
@@ -493,20 +466,17 @@ class ClipRegion {
         angle,
       );
 
-      if (_lineIntersectsRay(prevPoint, point, testPoint)) {
+      if (_crosses(previous, next, point)) {
         crossings++;
       }
-      prevPoint = point;
+      previous = next;
     }
 
     return crossings;
   }
 
-  // Methods moved to GeometryUtils:
-  // Ellipse point calculations now use MathUtils.ellipsePoint directly
-
   /// Intersects two lists of spans on the same scanline
-  List<Span> _intersectSpansOnScanline(List<Span> spans1, List<Span> spans2) {
+  List<Span> _overlap(List<Span> spans1, List<Span> spans2) {
     final result = <Span>[];
 
     int i = 0, j = 0;
@@ -517,8 +487,9 @@ class ClipRegion {
       final x1 = math.max(span1.x1, span2.x1);
       final x2 = math.min(span1.x2, span2.x2);
 
-      if (x1 < x2) {
-        result.add(Span.from(span1.y, x1, x2));
+      final coverage = MathUtils.mul255(span1.coverage, span2.coverage);
+      if (x1 < x2 && coverage > 0) {
+        result.add(Span.from(span1.y, x1, x2, coverage));
       }
 
       // Advance the span that ends first
@@ -533,72 +504,12 @@ class ClipRegion {
   }
 
   /// Clip a span to the given width
-  static Span? _clipSpanToWidth(Span span, int width) {
+  static Span? _crop(Span span, int width) {
     final x1 = math.max(0, span.x1);
     final x2 = math.min(width, span.x1 + span.length);
 
     if (x2 <= x1) return null;
 
     return Span(span.y, x1, x2 - x1, span.coverage);
-  }
-
-  /// Apply non-zero winding fill rule to spans
-  static Map<int, List<Span>> _applyNonZeroFillRule(
-    Map<int, List<Span>> spansByY,
-    int width,
-    int height,
-  ) {
-    // For non-zero winding, we need to track winding numbers
-    // This is a simplified implementation
-    final result = <int, List<Span>>{};
-
-    for (final entry in spansByY.entries) {
-      final y = entry.key;
-      final spans = entry.value;
-      final nonZeroSpans = <Span>[];
-
-      // Sort spans by x coordinate
-      spans.sort((a, b) => a.x1.compareTo(b.x1));
-
-      // Merge overlapping spans for non-zero rule
-      for (final span in spans) {
-        if (nonZeroSpans.isEmpty) {
-          nonZeroSpans.add(span);
-        } else {
-          final last = nonZeroSpans.last;
-          if (span.x1 <= last.x1 + last.length) {
-            // Merge spans
-            final newEnd = math.max(
-              last.x1 + last.length,
-              span.x1 + span.length,
-            );
-            nonZeroSpans[nonZeroSpans.length - 1] = Span(
-              y,
-              last.x1,
-              newEnd - last.x1,
-              math.max(last.coverage, span.coverage),
-            );
-          } else {
-            nonZeroSpans.add(span);
-          }
-        }
-      }
-
-      if (nonZeroSpans.isNotEmpty) {
-        result[y] = nonZeroSpans;
-      }
-    }
-
-    return result;
-  }
-}
-
-/// Extension methods for Rectangle
-extension RectangleExtensions on Rectangle<double> {
-  bool isInside(Point p) {
-    return p.x >= left &&
-        p.x <= left + width &&
-        p.y >= top &&
-        p.y <= top + height;
   }
 }

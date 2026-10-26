@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:libgfx/libgfx.dart';
+import 'package:libgfx/src/rasterize/implementations/basic_rasterizer.dart';
 import 'package:libgfx/src/spans/span.dart';
 import 'package:test/test.dart';
 
@@ -12,7 +13,7 @@ void main() {
       expect(clip.isEmpty, isTrue);
       expect(clip.bounds.width, equals(0));
       expect(clip.bounds.height, equals(0));
-      expect(clip.spansByY, isEmpty);
+      expect(clip.rows, isEmpty);
     });
 
     test('rectangular clip region', () {
@@ -26,10 +27,10 @@ void main() {
 
       // Check spans exist for each scanline
       for (int y = 20; y < 70; y++) {
-        expect(clip.spansByY.containsKey(y), isTrue);
-        expect(clip.spansByY[y]!.length, equals(1));
-        expect(clip.spansByY[y]![0].x1, equals(10));
-        expect(clip.spansByY[y]![0].x2, equals(110));
+        expect(clip.rows.containsKey(y), isTrue);
+        expect(clip.rows[y]!.length, equals(1));
+        expect(clip.rows[y]![0].x1, equals(10));
+        expect(clip.rows[y]![0].x2, equals(110));
       }
     });
 
@@ -39,7 +40,7 @@ void main() {
       builder.moveTo(50.0, 10.0);
       builder.lineTo(100.0, 90.0);
       builder.lineTo(0.0, 90.0);
-      builder.close();
+      builder.closePath();
       final path = builder.build();
 
       final matrix = Matrix2D.identity();
@@ -113,7 +114,7 @@ void main() {
         Span.from(40, 5, 15), // Outside clip region X
       ];
 
-      final clipped = clip.clipSpans(testSpans);
+      final clipped = clip.clip(testSpans);
 
       // Should have 3 clipped spans on scanline 40
       expect(clipped.length, equals(3));
@@ -140,14 +141,14 @@ void main() {
       final engine = GraphicsEngine(200, 200);
 
       // Set white background
-      engine.setFillColor(Color(0xFFFFFFFF));
+      engine.fillStyle = Color(0xFFFFFFFF);
       engine.fill(
         (PathBuilder()
               ..moveTo(0, 0)
               ..lineTo(200, 0)
               ..lineTo(200, 200)
               ..lineTo(0, 200)
-              ..close())
+              ..closePath())
             .build(),
       );
 
@@ -155,17 +156,17 @@ void main() {
       engine.clipRect(50, 50, 100, 100);
 
       // Draw a large red circle that should be clipped
-      engine.setFillColor(Color(0xFFFF0000));
+      engine.fillStyle = Color(0xFFFF0000);
       final circle = PathBuilder();
       _addCircle(circle, 100, 100, 80);
       engine.fill(circle.build());
 
       // Check that pixels outside clip are still white
-      expect(engine.canvas.getPixel(10, 10).value, equals(0xFFFFFFFF));
-      expect(engine.canvas.getPixel(190, 190).value, equals(0xFFFFFFFF));
+      expect(engine.canvas.pixel(10, 10).value, equals(0xFFFFFFFF));
+      expect(engine.canvas.pixel(190, 190).value, equals(0xFFFFFFFF));
 
       // Check that pixels inside clip are red (approximately)
-      final centerPixel = engine.canvas.getPixel(100, 100).value;
+      final centerPixel = engine.canvas.pixel(100, 100).value;
       expect((centerPixel >> 16) & 0xFF, greaterThan(200)); // Red channel
     });
 
@@ -173,14 +174,14 @@ void main() {
       final engine = GraphicsEngine(200, 200);
 
       // Set white background
-      engine.setFillColor(Color(0xFFFFFFFF));
+      engine.fillStyle = Color(0xFFFFFFFF);
       engine.fill(
         (PathBuilder()
               ..moveTo(0, 0)
               ..lineTo(200, 0)
               ..lineTo(200, 200)
               ..lineTo(0, 200)
-              ..close())
+              ..closePath())
             .build(),
       );
 
@@ -190,25 +191,25 @@ void main() {
       engine.clip(clipPath.build());
 
       // Fill entire canvas with blue - should only show inside circle
-      engine.setFillColor(Color(0xFF0000FF));
+      engine.fillStyle = Color(0xFF0000FF);
       engine.fill(
         (PathBuilder()
               ..moveTo(0, 0)
               ..lineTo(200, 0)
               ..lineTo(200, 200)
               ..lineTo(0, 200)
-              ..close())
+              ..closePath())
             .build(),
       );
 
       // Check corners are still white
-      expect(engine.canvas.getPixel(10, 10).value, equals(0xFFFFFFFF));
-      expect(engine.canvas.getPixel(190, 10).value, equals(0xFFFFFFFF));
-      expect(engine.canvas.getPixel(10, 190).value, equals(0xFFFFFFFF));
-      expect(engine.canvas.getPixel(190, 190).value, equals(0xFFFFFFFF));
+      expect(engine.canvas.pixel(10, 10).value, equals(0xFFFFFFFF));
+      expect(engine.canvas.pixel(190, 10).value, equals(0xFFFFFFFF));
+      expect(engine.canvas.pixel(10, 190).value, equals(0xFFFFFFFF));
+      expect(engine.canvas.pixel(190, 190).value, equals(0xFFFFFFFF));
 
       // Check center is blue
-      final centerPixel = engine.canvas.getPixel(100, 100);
+      final centerPixel = engine.canvas.pixel(100, 100);
       final centerColor = centerPixel;
       expect(centerColor.blue, greaterThan(200)); // Blue channel
     });
@@ -217,14 +218,14 @@ void main() {
       final engine = GraphicsEngine(200, 200);
 
       // White background
-      engine.setFillColor(Color(0xFFFFFFFF));
+      engine.fillStyle = Color(0xFFFFFFFF);
       engine.fill(
         (PathBuilder()
               ..moveTo(0, 0)
               ..lineTo(200, 0)
               ..lineTo(200, 200)
               ..lineTo(0, 200)
-              ..close())
+              ..closePath())
             .build(),
       );
 
@@ -237,25 +238,25 @@ void main() {
       engine.clip(clipCircle.build());
 
       // Fill with green
-      engine.setFillColor(Color(0xFF00FF00));
+      engine.fillStyle = Color(0xFF00FF00);
       engine.fill(
         (PathBuilder()
               ..moveTo(0, 0)
               ..lineTo(200, 0)
               ..lineTo(200, 200)
               ..lineTo(0, 200)
-              ..close())
+              ..closePath())
             .build(),
       );
 
       // Corners should be white (outside both clips)
-      expect(engine.canvas.getPixel(10, 10).value, equals(0xFFFFFFFF));
+      expect(engine.canvas.pixel(10, 10).value, equals(0xFFFFFFFF));
 
       // Just inside rectangle but outside circle should be white
-      expect(engine.canvas.getPixel(30, 30).value, equals(0xFFFFFFFF));
+      expect(engine.canvas.pixel(30, 30).value, equals(0xFFFFFFFF));
 
       // Center (inside both) should be green
-      final centerPixel = engine.canvas.getPixel(100, 100);
+      final centerPixel = engine.canvas.pixel(100, 100);
       final centerColor = centerPixel;
       expect(centerColor.green, greaterThan(200)); // Green channel
     });
@@ -264,14 +265,14 @@ void main() {
       final engine = GraphicsEngine(200, 200);
 
       // White background
-      engine.setFillColor(Color(0xFFFFFFFF));
+      engine.fillStyle = Color(0xFFFFFFFF);
       engine.fill(
         (PathBuilder()
               ..moveTo(0, 0)
               ..lineTo(200, 0)
               ..lineTo(200, 200)
               ..lineTo(0, 200)
-              ..close())
+              ..closePath())
             .build(),
       );
 
@@ -282,14 +283,14 @@ void main() {
       engine.clipRect(50, 50, 100, 100);
 
       // Draw red square
-      engine.setFillColor(Color(0xFFFF0000));
+      engine.fillStyle = Color(0xFFFF0000);
       engine.fill(
         (PathBuilder()
               ..moveTo(0, 0)
               ..lineTo(200, 0)
               ..lineTo(200, 200)
               ..lineTo(0, 200)
-              ..close())
+              ..closePath())
             .build(),
       );
 
@@ -297,25 +298,25 @@ void main() {
       engine.restore();
 
       // Draw blue in top-left corner - should not be clipped
-      engine.setFillColor(Color(0xFF0000FF));
+      engine.fillStyle = Color(0xFF0000FF);
       engine.fill(
         (PathBuilder()
               ..moveTo(0, 0)
               ..lineTo(40, 0)
               ..lineTo(40, 40)
               ..lineTo(0, 40)
-              ..close())
+              ..closePath())
             .build(),
       );
 
       // Top-left should be blue (no clipping after restore)
       // Graphics (20, 20) -> Bitmap (20, 179) due to Y-flip
-      final topLeftPixel = engine.canvas.getPixel(20, 179).value;
+      final topLeftPixel = engine.canvas.pixel(20, 179).value;
       expect(topLeftPixel & 0xFF, greaterThan(200)); // Blue channel (bits 0-7)
 
       // Center should be red (from clipped draw)
       // Graphics (100, 100) -> Bitmap (100, 99)
-      final centerPixel = engine.canvas.getPixel(100, 99).value;
+      final centerPixel = engine.canvas.pixel(100, 99).value;
       expect((centerPixel >> 16) & 0xFF, greaterThan(200)); // Red channel
     });
 
@@ -323,14 +324,14 @@ void main() {
       final engine = GraphicsEngine(200, 200);
 
       // White background
-      engine.setFillColor(Color(0xFFFFFFFF));
+      engine.fillStyle = Color(0xFFFFFFFF);
       engine.fill(
         (PathBuilder()
               ..moveTo(0, 0)
               ..lineTo(200, 0)
               ..lineTo(200, 200)
               ..lineTo(0, 200)
-              ..close())
+              ..closePath())
             .build(),
       );
 
@@ -343,27 +344,88 @@ void main() {
       engine.clipRect(50, 50, 100, 100);
 
       // Fill with red
-      engine.setFillColor(Color(0xFFFF0000));
+      engine.fillStyle = Color(0xFFFF0000);
       engine.fill(
         (PathBuilder()
               ..moveTo(0, 0)
               ..lineTo(200, 0)
               ..lineTo(200, 200)
               ..lineTo(0, 200)
-              ..close())
+              ..closePath())
             .build(),
       );
 
       // The clipped region should be a rotated square
       // Center should be red
-      final centerPixel = engine.canvas.getPixel(100, 100).value;
+      final centerPixel = engine.canvas.pixel(100, 100).value;
       expect((centerPixel >> 16) & 0xFF, greaterThan(200)); // Red channel
 
       // Corners should be white (outside rotated clip)
-      expect(engine.canvas.getPixel(10, 10).value, equals(0xFFFFFFFF));
-      expect(engine.canvas.getPixel(190, 190).value, equals(0xFFFFFFFF));
+      expect(engine.canvas.pixel(10, 10).value, equals(0xFFFFFFFF));
+      expect(engine.canvas.pixel(190, 190).value, equals(0xFFFFFFFF));
     });
   });
+
+  group('Injected rasterizer', () {
+    final square =
+        (PathBuilder()
+              ..moveTo(1, 1)
+              ..lineTo(3, 1)
+              ..lineTo(3, 3)
+              ..lineTo(1, 3)
+              ..closePath())
+            .build();
+
+    test(
+      'clip() rasterizes once with the engine rasterizer, non-zero by default',
+      () {
+        final rasterizer = _CountingRasterizer();
+        GraphicsEngine(4, 4, rasterizer: rasterizer).clip(square);
+        expect(rasterizer.rules, equals([FillRule.nonZero]));
+      },
+    );
+
+    test('clip() with a rule rasterizes once with that rule', () {
+      for (final rule in FillRule.values) {
+        final rasterizer = _CountingRasterizer();
+        GraphicsEngine(4, 4, rasterizer: rasterizer).clip(square, rule: rule);
+        expect(rasterizer.rules, equals([rule]));
+      }
+    });
+
+    test('the clip covers what the rasterizer produced', () {
+      final engine = GraphicsEngine(4, 4, rasterizer: _CountingRasterizer())
+        ..clip(square)
+        ..fillStyle = Color(0xFF000000)
+        ..fill(
+          (PathBuilder()
+                ..moveTo(0, 0)
+                ..lineTo(4, 0)
+                ..lineTo(4, 4)
+                ..lineTo(0, 4)
+                ..closePath())
+              .build(),
+        );
+      expect(engine.canvas.pixel(2, 2).value, equals(0xFF000000));
+      expect(engine.canvas.pixel(0, 0).value, isNot(0xFF000000));
+    });
+  });
+}
+
+/// Records each call's fill rule and delegates to [BasicRasterizer].
+class _CountingRasterizer implements Rasterizer {
+  final rules = <FillRule>[];
+  final _inner = BasicRasterizer();
+
+  @override
+  List<Span> rasterize(
+    final Path path, {
+    final FillRule rule = FillRule.evenOdd,
+    final Rectangle<int>? viewport,
+  }) {
+    rules.add(rule);
+    return _inner.rasterize(path, rule: rule, viewport: viewport);
+  }
 }
 
 void _addCircle(PathBuilder builder, double cx, double cy, double r) {
@@ -373,5 +435,5 @@ void _addCircle(PathBuilder builder, double cx, double cy, double r) {
     final angle = (i / segments) * 2 * math.pi;
     builder.lineTo(cx + r * math.cos(angle), cy + r * math.sin(angle));
   }
-  builder.close();
+  builder.closePath();
 }

@@ -5,8 +5,14 @@ import '../bitmap.dart';
 import '../../color/color.dart';
 import '../../errors.dart';
 import '../image_codec.dart';
+import '../../result.dart';
+import '../../limits.dart';
 
 class BmpImageCodec extends ImageCodec {
+  /// DIB header sizes of BITMAPINFOHEADER and its V2 to V5 extensions; the
+  /// fields read here are at the same offsets in all of them.
+  static const _headerSizes = {40, 52, 56, 108, 124};
+
   @override
   bool canDecode(Uint8List bytes) {
     if (bytes.length < 2) return false;
@@ -14,7 +20,12 @@ class BmpImageCodec extends ImageCodec {
   }
 
   @override
-  Bitmap decode(Uint8List bytes) {
+  Result<Bitmap, ErrorDetails> decode(
+    Uint8List bytes, {
+    Limits limits = const Limits(),
+  }) => ImageCodec.guard(() => _decode(bytes, limits));
+
+  Bitmap _decode(Uint8List bytes, Limits limits) {
     final data = ByteData.view(bytes.buffer, bytes.offsetInBytes, bytes.length);
 
     // BMP Header
@@ -23,15 +34,31 @@ class BmpImageCodec extends ImageCodec {
       throw FormatException('Not a BMP file');
     }
 
-    final pixelOffset = data.getUint32(10, Endian.little);
+    final start = data.getUint32(10, Endian.little);
 
     // DIB Header
-    // Header size is not used but read for validation
-    data.getUint32(14, Endian.little);
+    final headerSize = data.getUint32(14, Endian.little);
+    if (headerSize == 12) {
+      throw UnsupportedFormatException(
+        'BMP',
+        'BITMAPCOREHEADER (OS/2) BMP is not supported',
+      );
+    }
+    if (!_headerSizes.contains(headerSize)) {
+      throw FormatException('Invalid BMP DIB header size $headerSize');
+    }
+    if (bytes.length < 14 + headerSize) {
+      throw RangeError('BMP header ends early');
+    }
+
     final width = data.getInt32(18, Endian.little);
-    final height = data
-        .getInt32(22, Endian.little)
-        .abs(); // Height can be negative
+    final signed = data.getInt32(22, Endian.little);
+    if (width <= 0 || signed == 0) {
+      throw FormatException('Invalid BMP dimensions ${width}x$signed');
+    }
+    // A negative height means the rows are stored top to bottom
+    final topDown = signed < 0;
+    final height = signed.abs();
     final bitsPerPixel = data.getUint16(28, Endian.little);
     final compression = data.getUint32(30, Endian.little);
 
@@ -41,42 +68,54 @@ class BmpImageCodec extends ImageCodec {
         'Compressed BMP format not supported',
       );
     }
+    if (bitsPerPixel != 24 && bitsPerPixel != 32) {
+      throw UnsupportedFormatException(
+        'BMP',
+        'Only 24-bit and 32-bit BMP formats are supported',
+      );
+    }
 
-    final image = Bitmap.empty(width, height);
+    limits.require(width, height);
 
     // Calculate row padding (rows are aligned to 4-byte boundaries)
     final bytesPerPixel = bitsPerPixel ~/ 8;
-    final rowSize = ((width * bytesPerPixel + 3) ~/ 4) * 4;
+    final stride = ((width * bytesPerPixel + 3) ~/ 4) * 4;
 
-    // BMP stores pixels bottom-to-top
+    if (start < 14 + headerSize) {
+      throw FormatException(
+        'BMP pixel data offset $start is inside the headers',
+      );
+    }
+    if (bytes.length - start < stride * height) {
+      throw RangeError('BMP pixel data ends early');
+    }
+
+    final image = Bitmap.empty(width, height);
+
+    // Bottom-up BMPs store the last row first
     for (int y = 0; y < height; y++) {
-      final bmpY = height - 1 - y; // Flip Y
-      final rowOffset = pixelOffset + bmpY * rowSize;
+      final row = topDown ? y : height - 1 - y;
+      final base = start + row * stride;
 
       for (int x = 0; x < width; x++) {
-        final pixelOffset = rowOffset + x * bytesPerPixel;
+        final offset = base + x * bytesPerPixel;
 
         int r, g, b, a = 255;
 
         if (bitsPerPixel == 24) {
           // BGR format
-          b = bytes[pixelOffset];
-          g = bytes[pixelOffset + 1];
-          r = bytes[pixelOffset + 2];
-        } else if (bitsPerPixel == 32) {
-          // BGRA format
-          b = bytes[pixelOffset];
-          g = bytes[pixelOffset + 1];
-          r = bytes[pixelOffset + 2];
-          a = bytes[pixelOffset + 3];
+          b = bytes[offset];
+          g = bytes[offset + 1];
+          r = bytes[offset + 2];
         } else {
-          throw UnsupportedFormatException(
-            'BMP',
-            'Only 24-bit and 32-bit BMP formats are supported',
-          );
+          // BGRA format
+          b = bytes[offset];
+          g = bytes[offset + 1];
+          r = bytes[offset + 2];
+          a = bytes[offset + 3];
         }
 
-        image.setPixel(x, y, Color.fromRGBA(r, g, b, a));
+        image.plot(x, y, Color.fromRGBA(r, g, b, a));
       }
     }
 
@@ -88,16 +127,16 @@ class BmpImageCodec extends ImageCodec {
     final width = image.width;
     final height = image.height;
     final bytesPerPixel = 3; // 24-bit RGB
-    final rowSize = ((width * bytesPerPixel + 3) ~/ 4) * 4; // Align to 4 bytes
-    final pixelDataSize = rowSize * height;
-    final fileSize = 54 + pixelDataSize; // Header + pixel data
+    final stride = ((width * bytesPerPixel + 3) ~/ 4) * 4; // Align to 4 bytes
+    final size = stride * height;
+    final length = 54 + size; // Header + pixel data
 
-    final bytes = Uint8List(fileSize);
+    final bytes = Uint8List(length);
     final data = ByteData.view(bytes.buffer);
 
     // BMP Header (14 bytes)
     data.setUint16(0, 0x4D42, Endian.little); // "BM"
-    data.setUint32(2, fileSize, Endian.little);
+    data.setUint32(2, length, Endian.little);
     data.setUint32(6, 0, Endian.little); // Reserved
     data.setUint32(10, 54, Endian.little); // Pixel data offset
 
@@ -108,7 +147,7 @@ class BmpImageCodec extends ImageCodec {
     data.setUint16(26, 1, Endian.little); // Planes
     data.setUint16(28, 24, Endian.little); // Bits per pixel
     data.setUint32(30, 0, Endian.little); // No compression
-    data.setUint32(34, pixelDataSize, Endian.little);
+    data.setUint32(34, size, Endian.little);
     data.setInt32(38, 2835, Endian.little); // Horizontal resolution (72 DPI)
     data.setInt32(42, 2835, Endian.little); // Vertical resolution (72 DPI)
     data.setUint32(46, 0, Endian.little); // Colors in palette
@@ -118,13 +157,13 @@ class BmpImageCodec extends ImageCodec {
     var offset = 54;
     for (int y = height - 1; y >= 0; y--) {
       for (int x = 0; x < width; x++) {
-        final color = image.getPixel(x, y);
+        final color = image.pixel(x, y);
         bytes[offset++] = color.blue;
         bytes[offset++] = color.green;
         bytes[offset++] = color.red;
       }
       // Add padding bytes to align to 4-byte boundary
-      final padding = rowSize - (width * bytesPerPixel);
+      final padding = stride - (width * bytesPerPixel);
       offset += padding;
     }
 

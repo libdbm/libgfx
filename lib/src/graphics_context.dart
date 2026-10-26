@@ -1,50 +1,63 @@
+import 'dart:math' show pow;
+
 import 'image/bitmap.dart';
 import 'clipping/clip_region.dart';
 import 'utils/dasher.dart';
 import 'graphics_state.dart';
 import 'image/image_renderer.dart';
+import 'limits.dart';
 import 'matrix.dart';
 import 'rectangle.dart';
+import 'result.dart';
 import 'paths/path.dart';
 import 'rasterize/rasterizer.dart';
 import 'rasterize/implementations/basic_rasterizer.dart';
+import 'spans/span.dart';
 import 'spans/span_pipeline.dart';
 import 'utils/stroker.dart';
 
 class GraphicsContext {
   final Bitmap bitmap;
-  final List<GraphicsState> _stateStack = [];
+  final List<GraphicsState> _stack = [];
   final Rasterizer _rasterizer;
   final Stroker _stroker = Stroker();
   final Dasher _dasher = Dasher();
-  late final SpanPipeline _spanPipeline;
+  late final SpanPipeline _pipeline;
 
-  GraphicsContext(this.bitmap, {Rasterizer? rasterizer})
-    : _rasterizer = rasterizer ?? BasicRasterizer(antiAlias: true) {
-    final initialState = GraphicsState(transform: Matrix2D.identity());
-    _stateStack.add(initialState);
-    _spanPipeline = SpanPipeline.createStandard(bitmap);
+  /// Limits applied to drawing operations, such as the dash count.
+  final Limits limits;
+
+  GraphicsContext(
+    this.bitmap, {
+    Rasterizer? rasterizer,
+    this.limits = const Limits(),
+  }) : _rasterizer = rasterizer ?? BasicRasterizer(antiAlias: true) {
+    final initial = GraphicsState(transform: Matrix2D.identity());
+    _stack.add(initial);
+    _pipeline = SpanPipeline.createStandard(bitmap);
   }
 
   Rasterizer get rasterizer => _rasterizer;
-  GraphicsState get state => _stateStack.last;
+  GraphicsState get state => _stack.last;
 
-  void save() => _stateStack.add(state.clone());
+  void save() => _stack.add(state.clone());
 
   void restore() {
-    if (_stateStack.length > 1) _stateStack.removeLast();
+    if (_stack.length > 1) _stack.removeLast();
   }
 
-  void clip(Path path) {
+  void clip(Path path, {FillRule rule = FillRule.evenOdd}) {
     // Transform path using only user transform (no Y-flip)
-    final transformedPath = path.transform(state.transform);
+    final transformed = path.transform(state.transform);
 
     // Create new clip region from path in graphics coordinates
-    final newClipRegion = ClipRegion.fromPath(
-      transformedPath,
+    final region = ClipRegion.fromPath(
+      transformed,
       Matrix2D.identity(),
       bitmap.width,
       bitmap.height,
+      rule: rule,
+      rasterizer: _rasterizer,
     );
 
     // Store the clip path for save/restore
@@ -52,33 +65,9 @@ class GraphicsContext {
 
     // If there's an existing clip region, intersect with it
     if (state.clipRegion != null) {
-      state.clipRegion = state.clipRegion!.intersect(newClipRegion);
+      state.clipRegion = state.clipRegion!.intersect(region);
     } else {
-      state.clipRegion = newClipRegion;
-    }
-  }
-
-  void clipWithAdvancedRegion(ClipRegion advancedClip) {
-    // Transform path using only user transform (no Y-flip)
-    final transformedPath = advancedClip.path!.transform(state.transform);
-
-    // Create new clip region with fill rule
-    final newClipRegion = ClipRegion.fromPath(
-      transformedPath,
-      Matrix2D.identity(),
-      bitmap.width,
-      bitmap.height,
-      fillRule: advancedClip.fillRule,
-    );
-
-    // Store the clip path for save/restore
-    state.clipPath = advancedClip.path!.clone();
-
-    // If there's an existing clip region, intersect with it
-    if (state.clipRegion != null) {
-      state.clipRegion = state.clipRegion!.intersect(newClipRegion);
-    } else {
-      state.clipRegion = newClipRegion;
+      state.clipRegion = region;
     }
   }
 
@@ -170,7 +159,8 @@ class GraphicsContext {
     double opacity = 1.0,
     Rectangle<double>? sourceRect,
   }) {
-    final effectiveSourceRect = sourceRect ??
+    final bounds =
+        sourceRect ??
         Rectangle<double>(
           0,
           0,
@@ -178,70 +168,113 @@ class GraphicsContext {
           image.height.toDouble(),
         );
 
-    final sourceLeft = effectiveSourceRect.left;
-    final sourceTop = effectiveSourceRect.top;
-    final sourceHeight = effectiveSourceRect.height;
+    final left = bounds.left;
+    final top = bounds.top;
+    final height = bounds.height;
 
-    final engineToDevice = Matrix2D.identity()
-      ..translate(0, bitmap.height.toDouble() - 1)
+    final device = Matrix2D.identity()
+      ..translate(0, bitmap.height.toDouble())
       ..scale(1.0, -1.0);
 
-    final imageTransform = Matrix2D.identity()
-      ..multiply(engineToDevice)
+    final transform = Matrix2D.identity()
+      ..multiply(device)
       ..multiply(state.transform)
       ..translate(dx, dy)
       ..scale(scaleX, scaleY)
-      ..translate(-sourceLeft, -sourceTop)
-      ..translate(0, sourceHeight - 1)
+      ..translate(-left, -top)
+      ..translate(0, height)
       ..scale(1.0, -1.0);
 
     ImageRenderer.renderImage(
       bitmap,
       image,
-      imageTransform,
+      transform,
       state,
       filter: filter,
       opacity: opacity,
-      sourceRect: effectiveSourceRect,
+      sourceRect: bounds,
     );
   }
 
-  void fill(Path path) {
-    // Transform path using only user transform (no Y-flip)
-    final inverseTransform = Matrix2D.copy(state.transform)..invert();
+  /// Coverage mapped through `coverage ^ 0.6`, for [fill] of text
+  static final List<int> _contrast = [
+    for (var coverage = 0; coverage < 256; coverage++)
+      (pow(coverage / 255, 0.6) * 255).round(),
+  ];
+
+  /// Fills [path] under [rule]. With [text], partly covered pixels are
+  /// darkened by a contrast curve, so that unhinted glyph stems read less
+  /// blurred.
+  void fill(
+    Path path, {
+    FillRule rule = FillRule.nonZero,
+    final bool text = false,
+  }) {
+    // A singular transform collapses the path; there is nothing to paint
+    final Matrix2D inverse;
+    switch (state.transform.inverse()) {
+      case Ok(:final value):
+        inverse = value;
+      case Err():
+        return;
+    }
 
     // Transform the entire path (preserving all contours for even-odd fill rule)
-    final transformedPath = path.transform(state.transform);
-    final dataSpans = _rasterizer.rasterize(transformedPath);
+    final transformed = path.transform(state.transform);
+    final spans = _rasterizer.rasterize(
+      transformed,
+      rule: rule,
+      viewport: Rectangle(0, 0, bitmap.width, bitmap.height),
+    );
 
     // Process spans through the pipeline
-    var processedSpans = _spanPipeline.process(dataSpans);
+    var processed = _pipeline.process(
+      text
+          ? [
+              for (final span in spans)
+                span.coverage == 255
+                    ? span
+                    : Span(
+                        span.y,
+                        span.x,
+                        span.length,
+                        _contrast[span.coverage],
+                      ),
+            ]
+          : spans,
+    );
 
     // Apply clipping if a clip region exists
-    final clipRegion = state.clipRegion;
-    if (clipRegion != null) {
-      processedSpans = clipRegion.clipSpans(processedSpans);
+    final region = state.clipRegion;
+    if (region != null) {
+      processed = region.clip(processed);
     }
 
     // Render the processed spans
-    _spanPipeline.render(
-      processedSpans,
+    _pipeline.render(
+      processed,
       state.fillPaint,
-      inverseTransform,
+      inverse,
       state.blendMode,
       globalAlpha: state.globalAlpha,
     );
   }
 
-  void stroke(Path path) {
-    var pathToStroke = path;
+  /// Strokes [path] with the stroke state; [text] as for [fill]
+  void stroke(Path path, {final bool text = false}) {
+    var input = path;
     if (state.dashPattern != null && state.dashPattern!.isNotEmpty) {
-      pathToStroke = _dasher.dash(path, state.dashPattern!);
+      input = _dasher.dash(path, state.dashPattern!, limits: limits);
     }
-    final outlinePath = _stroker.stroke(pathToStroke, state);
+    final outline = _stroker.stroke(input, state);
     save();
-    state.fillPaint = state.strokePaint;
-    fill(outlinePath);
-    restore();
+    try {
+      state.fillPaint = state.strokePaint;
+      // Overlapping parts of an outline (adjacent round caps, joins) add up
+      // rather than cancel
+      fill(outline, rule: FillRule.nonZero, text: text);
+    } finally {
+      restore();
+    }
   }
 }

@@ -11,8 +11,12 @@ Future<void> main() async {
   const minSize = 250.0;
 
   const filesystem = LocalGraphicsFileSystem();
-  final engine = GraphicsEngine(width, height, filesystem: filesystem);
-  final random = math.Random();
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+  // page units
+  final engine = GraphicsEngine(2 * width, 2 * height, filesystem: filesystem)
+    ..scale(2, 2);
+  // A fixed seed makes every run draw the same image
+  final random = math.Random(42);
 
   // Calculate box size for tiling
   final inWidth = width / minSize;
@@ -58,7 +62,7 @@ Future<void> main() async {
 
   engine.restore();
 
-  await engine.saveToFile('output/snowflake.ppm');
+  await engine.write('output/snowflake.ppm');
   print('output/snowflake.ppm saved successfully!');
   print('A field of unique snowflakes has been rendered.');
 }
@@ -97,7 +101,7 @@ void _drawSnowflake(GraphicsEngine engine, math.Random random, double size) {
       for (int j = 0; j < 3; j++) {
         final idx = i * 3 + j;
         if (idx + 2 < points.length) {
-          builder.curveTo(
+          builder.bezierCurveTo(
             points[idx].x,
             points[idx].y,
             points[idx + 1].x,
@@ -115,7 +119,7 @@ void _drawSnowflake(GraphicsEngine engine, math.Random random, double size) {
       for (int j = 0; j < 3; j++) {
         final idx = i * 3 + j;
         if (idx + 2 < points.length) {
-          builder.curveTo(
+          builder.bezierCurveTo(
             -points[idx].x,
             points[idx].y,
             -points[idx + 1].x,
@@ -138,15 +142,15 @@ void _drawSnowflake(GraphicsEngine engine, math.Random random, double size) {
     final arm = createArm();
 
     // Fill and stroke each arm
-    engine.setFillColor(fillColor);
+    engine.fillStyle = fillColor;
     engine.fill(arm);
 
     engine.restore();
   }
 
   // Stroke all arms together
-  engine.setStrokeColor(strokeColor);
-  engine.setLineWidth(2);
+  engine.strokeStyle = strokeColor;
+  engine.lineWidth = 2;
   for (int i = 0; i < 6; i++) {
     engine.save();
     engine.rotate(i * math.pi / 3);

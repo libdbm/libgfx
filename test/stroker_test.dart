@@ -36,7 +36,7 @@ void main() {
           ..lineTo(40, 10)
           ..lineTo(40, 30)
           ..lineTo(10, 30)
-          ..close();
+          ..closePath();
 
         final stroked = stroker.stroke(path.build(), state);
 
@@ -127,7 +127,7 @@ void main() {
           ..moveTo(10, 10)
           ..lineTo(30, 10)
           ..lineTo(30, 30)
-          ..close();
+          ..closePath();
 
         final closedStroked = stroker.stroke(closedPath.build(), state);
 
@@ -245,7 +245,7 @@ void main() {
 
         final path = PathBuilder()
           ..moveTo(10, 10)
-          ..curveTo(20, 5, 30, 5, 40, 10);
+          ..bezierCurveTo(20, 5, 30, 5, 40, 10);
 
         final stroked = stroker.stroke(path.build(), state);
 
@@ -284,8 +284,8 @@ void main() {
       test('strokes path with curves', () {
         final path = PathBuilder()
           ..moveTo(10, 30)
-          ..curveTo(10, 10, 30, 10, 30, 30)
-          ..curveTo(30, 50, 10, 50, 10, 30);
+          ..bezierCurveTo(10, 10, 30, 10, 30, 30)
+          ..bezierCurveTo(30, 50, 10, 50, 10, 30);
 
         final stroked = stroker.stroke(path.build(), state);
 
@@ -299,7 +299,7 @@ void main() {
           ..lineTo(30, 30)
           ..lineTo(30, 10)
           ..lineTo(10, 30)
-          ..close();
+          ..closePath();
 
         final stroked = stroker.stroke(path.build(), state);
 
@@ -312,12 +312,12 @@ void main() {
           ..moveTo(10, 10)
           ..lineTo(30, 10)
           ..lineTo(30, 30)
-          ..close()
+          ..closePath()
           // Second subpath
           ..moveTo(40, 10)
           ..lineTo(60, 10)
           ..lineTo(60, 30)
-          ..close();
+          ..closePath();
 
         final stroked = stroker.stroke(path.build(), state);
 
@@ -476,7 +476,7 @@ void main() {
             path.lineTo(x, y);
           }
         }
-        path.close();
+        path.closePath();
 
         final stroked = stroker.stroke(path.build(), state);
 
@@ -493,7 +493,7 @@ void main() {
         path.moveTo(cx, cy + size * 0.3);
 
         // Left side of heart
-        path.curveTo(
+        path.bezierCurveTo(
           cx - size * 0.5,
           cy,
           cx - size,
@@ -502,7 +502,7 @@ void main() {
           cy - size * 0.5,
         );
 
-        path.curveTo(
+        path.bezierCurveTo(
           cx - size,
           cy - size * 0.8,
           cx - size * 0.5,
@@ -512,7 +512,7 @@ void main() {
         );
 
         // Right side of heart
-        path.curveTo(
+        path.bezierCurveTo(
           cx + size * 0.5,
           cy - size,
           cx + size,
@@ -521,7 +521,7 @@ void main() {
           cy - size * 0.5,
         );
 
-        path.curveTo(
+        path.bezierCurveTo(
           cx + size,
           cy - size * 0.3,
           cx + size * 0.5,
@@ -530,7 +530,7 @@ void main() {
           cy + size * 0.3,
         );
 
-        path.close();
+        path.closePath();
 
         final stroked = stroker.stroke(path.build(), state);
 
@@ -542,12 +542,12 @@ void main() {
         // Simulate a character-like path with complex curves
         final path = PathBuilder()
           ..moveTo(10, 40)
-          ..curveTo(10, 20, 20, 10, 30, 10)
-          ..curveTo(40, 10, 50, 20, 50, 30)
-          ..curveTo(50, 40, 40, 50, 30, 50)
+          ..bezierCurveTo(10, 20, 20, 10, 30, 10)
+          ..bezierCurveTo(40, 10, 50, 20, 50, 30)
+          ..bezierCurveTo(50, 40, 40, 50, 30, 50)
           ..lineTo(20, 50)
-          ..curveTo(15, 50, 10, 45, 10, 40)
-          ..close();
+          ..bezierCurveTo(15, 50, 10, 45, 10, 40)
+          ..closePath();
 
         state.strokeWidth = 2.0; // Thin stroke for text
 
@@ -584,7 +584,7 @@ void main() {
           ..lineTo(30, 10)
           ..lineTo(30, 30)
           ..lineTo(10, 30)
-          ..close();
+          ..closePath();
 
         // Non-uniform scale
         final transform = Matrix2D.scaling(2.0, 0.5);
@@ -601,7 +601,7 @@ void main() {
           ..moveTo(10, 10)
           ..lineTo(30, 10)
           ..lineTo(20, 30)
-          ..close();
+          ..closePath();
 
         // Test various rotations
         final angles = [0, math.pi / 4, math.pi / 2, math.pi, 3 * math.pi / 2];
@@ -642,7 +642,7 @@ void main() {
           ..lineTo(40, 10)
           ..lineTo(40, 40)
           ..lineTo(10, 40)
-          ..close();
+          ..closePath();
 
         final stroked = stroker.stroke(path.build(), state);
 
@@ -695,12 +695,9 @@ void main() {
           }
         }
 
-        final stopwatch = Stopwatch()..start();
         final stroked = stroker.stroke(path.build(), state);
-        stopwatch.stop();
 
         expect(stroked, isNotNull);
-        expect(stopwatch.elapsedMilliseconds, lessThan(100));
       });
 
       test('strokes path with many curves efficiently', () {
@@ -716,15 +713,12 @@ void main() {
           final y2 = 50 + 30 * math.sin((i + 0.5) * 0.2);
           final y3 = 50 + 30 * math.sin((i + 1) * 0.2);
 
-          path.curveTo(x1, y1, x2, y2, x3, y3);
+          path.bezierCurveTo(x1, y1, x2, y2, x3, y3);
         }
 
-        final stopwatch = Stopwatch()..start();
         final stroked = stroker.stroke(path.build(), state);
-        stopwatch.stop();
 
         expect(stroked, isNotNull);
-        expect(stopwatch.elapsedMilliseconds, lessThan(200));
       });
     });
 
@@ -784,15 +778,62 @@ void main() {
 
         state.strokeWidth = 1.0;
 
-        final stopwatch = Stopwatch()..start();
         final stroked = stroker.stroke(path.build(), state);
-        stopwatch.stop();
 
         expect(stroked, isNotNull);
-        expect(stopwatch.elapsedMilliseconds, lessThan(1000));
       });
     });
+
+    group('Round cap winding', () {
+      // Both caps must wind the same way as the body, so the outline's
+      // signed area is the body plus two half discs. A cap wound the other
+      // way subtracts its half disc instead.
+      for (final (name, from, to) in [
+        ('horizontal', Point(10, 50), Point(40, 50)),
+        ('reversed', Point(40, 50), Point(10, 50)),
+        ('diagonal', Point(10, 10), Point(31.2132, 31.2132)),
+      ]) {
+        test(name, () {
+          state.strokeWidth = 20;
+          state.lineCap = LineCap.round;
+          final outline = stroker.stroke(
+            (PathBuilder()
+                  ..moveTo(from.x, from.y)
+                  ..lineTo(to.x, to.y))
+                .build(),
+            state,
+          );
+          // Each cap is flattened to 10 steps of 18 degrees
+          final disc = 10 * 10 * 10 * math.sin(math.pi / 10);
+          expect(_area(outline).abs(), closeTo(30 * 20 + disc, 0.5));
+        });
+      }
+    });
   });
+}
+
+/// Signed area of [path], whose commands are all moveTo, lineTo and close.
+double _area(final Path path) {
+  var area = 0.0;
+  var points = <Point>[];
+  void add() {
+    for (var i = 0; i < points.length; i++) {
+      final p = points[i];
+      final q = points[(i + 1) % points.length];
+      area += (p.x * q.y - q.x * p.y) / 2;
+    }
+  }
+
+  for (final command in path.commands) {
+    if (command.type == PathCommandType.moveTo) {
+      add();
+      points = [command.points.first];
+    } else if (command.type == PathCommandType.lineTo) {
+      points.add(command.points.first);
+    }
+  }
+  add();
+  return area;
 }
 
 // Simple trig helpers

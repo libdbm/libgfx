@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import '../font_error_messages.dart';
@@ -9,8 +10,8 @@ class TTFParser {
   late final ByteData _data;
   late final Map<String, TtfTable> _tables;
 
-  TTFParser(Uint8List fontData) {
-    _data = ByteData.sublistView(fontData);
+  TTFParser(final Uint8List bytes) {
+    _data = ByteData.sublistView(bytes);
     _tables = {};
     _parseTables();
   }
@@ -28,19 +29,27 @@ class TTFParser {
 
     // Read number of tables (offset 4)
     final numTables = _readUint16(4);
+    if (12 + numTables * 16 > _data.lengthInBytes) {
+      throw FormatException(
+        'Table directory of $numTables tables exceeds the font data',
+      );
+    }
 
     // Parse table directory (starts at offset 12)
     var offset = 12;
     for (int i = 0; i < numTables; i++) {
       final tag = _readString(offset, 4);
       final checkSum = _readUint32(offset + 4);
-      final tableOffset = _readUint32(offset + 8);
+      final start = _readUint32(offset + 8);
       final length = _readUint32(offset + 12);
+      if (start + length > _data.lengthInBytes) {
+        throw RangeError('Table $tag extends past the end of the font data');
+      }
 
       _tables[tag] = TtfTable(
         tag: tag,
         checkSum: checkSum,
-        offset: tableOffset,
+        offset: start,
         length: length,
       );
 
@@ -54,122 +63,119 @@ class TTFParser {
   /// Check if a table exists
   bool hasTable(String tag) => _tables.containsKey(tag);
 
-  /// Get all table tags
-  List<String> get tableTags => _tables.keys.toList();
+  /// A view of table [tag] that cannot read outside the table. Throws
+  /// [FormatException] if the font has no such table.
+  ByteData table(String tag) {
+    final entry = getTable(tag);
+    if (entry == null) throw FormatException('Missing $tag table');
+    return ByteData.sublistView(
+      _data,
+      entry.offset,
+      entry.offset + entry.length,
+    );
+  }
 
   /// Read font header (head table)
   TtfHeadTable readHeadTable() {
-    final table = getTable('head');
-    if (table == null) throw FormatException('Missing head table');
-
-    final offset = table.offset;
+    final data = table('head');
     return TtfHeadTable(
-      majorVersion: _readUint16(offset),
-      minorVersion: _readUint16(offset + 2),
-      fontRevision: _readFixed(offset + 4),
-      checkSumAdjustment: _readUint32(offset + 8),
-      magicNumber: _readUint32(offset + 12),
-      flags: _readUint16(offset + 16),
-      unitsPerEm: _readUint16(offset + 18),
-      created: _readLongDateTime(offset + 20),
-      modified: _readLongDateTime(offset + 28),
-      xMin: _readInt16(offset + 36),
-      yMin: _readInt16(offset + 38),
-      xMax: _readInt16(offset + 40),
-      yMax: _readInt16(offset + 42),
-      macStyle: _readUint16(offset + 44),
-      lowestRecPPEM: _readUint16(offset + 46),
-      fontDirectionHint: _readInt16(offset + 48),
-      indexToLocFormat: _readInt16(offset + 50),
-      glyphDataFormat: _readInt16(offset + 52),
+      majorVersion: data.getUint16(0),
+      minorVersion: data.getUint16(2),
+      fontRevision: _readFixed(data, 4),
+      checkSumAdjustment: data.getUint32(8),
+      magicNumber: data.getUint32(12),
+      flags: data.getUint16(16),
+      unitsPerEm: data.getUint16(18),
+      created: _readLongDateTime(data, 20),
+      modified: _readLongDateTime(data, 28),
+      xMin: data.getInt16(36),
+      yMin: data.getInt16(38),
+      xMax: data.getInt16(40),
+      yMax: data.getInt16(42),
+      macStyle: data.getUint16(44),
+      lowestRecPPEM: data.getUint16(46),
+      fontDirectionHint: data.getInt16(48),
+      indexToLocFormat: data.getInt16(50),
+      glyphDataFormat: data.getInt16(52),
     );
   }
 
   /// Read horizontal header (hhea table)
   TtfHheaTable readHheaTable() {
-    final table = getTable('hhea');
-    if (table == null) throw FormatException('Missing hhea table');
-
-    final offset = table.offset;
+    final data = table('hhea');
     return TtfHheaTable(
-      majorVersion: _readUint16(offset),
-      minorVersion: _readUint16(offset + 2),
-      ascender: _readInt16(offset + 4),
-      descender: _readInt16(offset + 6),
-      lineGap: _readInt16(offset + 8),
-      advanceWidthMax: _readUint16(offset + 10),
-      minLeftSideBearing: _readInt16(offset + 12),
-      minRightSideBearing: _readInt16(offset + 14),
-      xMaxExtent: _readInt16(offset + 16),
-      caretSlopeRise: _readInt16(offset + 18),
-      caretSlopeRun: _readInt16(offset + 20),
-      caretOffset: _readInt16(offset + 22),
-      metricDataFormat: _readInt16(offset + 32),
-      numberOfHMetrics: _readUint16(offset + 34),
+      majorVersion: data.getUint16(0),
+      minorVersion: data.getUint16(2),
+      ascender: data.getInt16(4),
+      descender: data.getInt16(6),
+      lineGap: data.getInt16(8),
+      advanceWidthMax: data.getUint16(10),
+      minLeftSideBearing: data.getInt16(12),
+      minRightSideBearing: data.getInt16(14),
+      xMaxExtent: data.getInt16(16),
+      caretSlopeRise: data.getInt16(18),
+      caretSlopeRun: data.getInt16(20),
+      caretOffset: data.getInt16(22),
+      metricDataFormat: data.getInt16(32),
+      numberOfHMetrics: data.getUint16(34),
     );
   }
 
   /// Read maximum profile (maxp table)
   TtfMaxpTable readMaxpTable() {
-    final table = getTable('maxp');
-    if (table == null) throw FormatException('Missing maxp table');
-
-    final offset = table.offset;
-    final version = _readFixed(offset);
+    final data = table('maxp');
+    final version = _readFixed(data, 0);
 
     return TtfMaxpTable(
       version: version,
-      numGlyphs: _readUint16(offset + 4),
-      maxPoints: version >= 1.0 ? _readUint16(offset + 6) : 0,
-      maxContours: version >= 1.0 ? _readUint16(offset + 8) : 0,
-      maxCompositePoints: version >= 1.0 ? _readUint16(offset + 10) : 0,
-      maxCompositeContours: version >= 1.0 ? _readUint16(offset + 12) : 0,
-      maxZones: version >= 1.0 ? _readUint16(offset + 14) : 0,
-      maxTwilightPoints: version >= 1.0 ? _readUint16(offset + 16) : 0,
-      maxStorage: version >= 1.0 ? _readUint16(offset + 18) : 0,
-      maxFunctionDefs: version >= 1.0 ? _readUint16(offset + 20) : 0,
-      maxInstructionDefs: version >= 1.0 ? _readUint16(offset + 22) : 0,
-      maxStackElements: version >= 1.0 ? _readUint16(offset + 24) : 0,
-      maxSizeOfInstructions: version >= 1.0 ? _readUint16(offset + 26) : 0,
-      maxComponentElements: version >= 1.0 ? _readUint16(offset + 28) : 0,
-      maxComponentDepth: version >= 1.0 ? _readUint16(offset + 30) : 0,
+      numGlyphs: data.getUint16(4),
+      maxPoints: version >= 1.0 ? data.getUint16(6) : 0,
+      maxContours: version >= 1.0 ? data.getUint16(8) : 0,
+      maxCompositePoints: version >= 1.0 ? data.getUint16(10) : 0,
+      maxCompositeContours: version >= 1.0 ? data.getUint16(12) : 0,
+      maxZones: version >= 1.0 ? data.getUint16(14) : 0,
+      maxTwilightPoints: version >= 1.0 ? data.getUint16(16) : 0,
+      maxStorage: version >= 1.0 ? data.getUint16(18) : 0,
+      maxFunctionDefs: version >= 1.0 ? data.getUint16(20) : 0,
+      maxInstructionDefs: version >= 1.0 ? data.getUint16(22) : 0,
+      maxStackElements: version >= 1.0 ? data.getUint16(24) : 0,
+      maxSizeOfInstructions: version >= 1.0 ? data.getUint16(26) : 0,
+      maxComponentElements: version >= 1.0 ? data.getUint16(28) : 0,
+      maxComponentDepth: version >= 1.0 ? data.getUint16(30) : 0,
     );
   }
 
   /// Read naming table (name table)
   TtfNameTable readNameTable() {
-    final table = getTable('name');
-    if (table == null) throw FormatException('Missing name table');
-
-    final offset = table.offset;
-    final format = _readUint16(offset);
-    final count = _readUint16(offset + 2);
-    final stringOffset = _readUint16(offset + 4);
+    final data = table('name');
+    final format = data.getUint16(0);
+    final count = data.getUint16(2);
+    final stringOffset = data.getUint16(4);
 
     final records = <TtfNameRecord>[];
-    var recordOffset = offset + 6;
+    var position = 6;
 
     for (int i = 0; i < count; i++) {
-      final platformID = _readUint16(recordOffset);
-      final encodingID = _readUint16(recordOffset + 2);
-      final languageID = _readUint16(recordOffset + 4);
-      final nameID = _readUint16(recordOffset + 6);
-      final stringLength = _readUint16(recordOffset + 8);
-      final nameOffset = _readUint16(recordOffset + 10);
+      final platformID = data.getUint16(position);
+      final encodingID = data.getUint16(position + 2);
+      final languageID = data.getUint16(position + 4);
+      final nameID = data.getUint16(position + 6);
+      final length = data.getUint16(position + 8);
+      final offset = data.getUint16(position + 10);
 
       // Read the actual string
-      final stringStart = offset + stringOffset + nameOffset;
-      String nameString;
+      final start = stringOffset + offset;
+      String name;
 
       if (platformID == 0 || platformID == 3) {
         // Unicode platform - UTF-16BE
-        nameString = _readUtf16BeString(stringStart, stringLength);
+        name = _readUtf16BeString(data, start, length);
       } else if (platformID == 1) {
         // Macintosh platform - typically Mac Roman
-        nameString = _readMacRomanString(stringStart, stringLength);
+        name = _readMacRomanString(data, start, length);
       } else {
         // Other platforms - treat as Latin-1
-        nameString = _readLatin1String(stringStart, stringLength);
+        name = _readLatin1String(data, start, length);
       }
 
       records.add(
@@ -178,13 +184,13 @@ class TTFParser {
           encodingID: encodingID,
           languageID: languageID,
           nameID: nameID,
-          length: stringLength,
-          offset: nameOffset,
-          name: nameString,
+          length: length,
+          offset: offset,
+          name: name,
         ),
       );
 
-      recordOffset += 12;
+      position += 12;
     }
 
     return TtfNameTable(
@@ -197,55 +203,55 @@ class TTFParser {
 
   /// Read character to glyph mapping (cmap table)
   TtfCmapTable readCmapTable() {
-    final table = getTable('cmap');
-    if (table == null) throw FormatException('Missing cmap table');
-
-    final offset = table.offset;
-    final version = _readUint16(offset);
-    final numTables = _readUint16(offset + 2);
+    final data = table('cmap');
+    final version = data.getUint16(0);
+    final numTables = data.getUint16(2);
 
     final subtables = <TtfCmapSubtable>[];
-    var subtableOffset = offset + 4;
+    var position = 4;
 
     for (int i = 0; i < numTables; i++) {
-      final platformID = _readUint16(subtableOffset);
-      final encodingID = _readUint16(subtableOffset + 2);
-      final cmapOffset = _readUint32(subtableOffset + 4);
+      final platformID = data.getUint16(position);
+      final encodingID = data.getUint16(position + 2);
+      final offset = data.getUint32(position + 4);
 
       // Read subtable format
-      final subtableStart = offset + cmapOffset;
-      final format = _readUint16(subtableStart);
+      final start = offset;
+      final format = data.getUint16(start);
 
-      Map<int, int>? charMap;
+      Map<int, int>? mapping;
+      List<int> groups = const [];
 
       // Parse different cmap formats
       switch (format) {
         case 0:
-          charMap = _parseCmapFormat0(subtableStart);
+          mapping = _parseCmapFormat0(data, start);
           break;
         case 4:
-          charMap = _parseCmapFormat4(subtableStart);
+          mapping = _parseCmapFormat4(data, start);
           break;
         case 12:
-          charMap = _parseCmapFormat12(subtableStart);
+          groups = _parseCmapFormat12(data, start);
+          mapping = const {};
           break;
         default:
           // Unsupported format, skip
           break;
       }
 
-      if (charMap != null) {
+      if (mapping != null) {
         subtables.add(
           TtfCmapSubtable(
             platformID: platformID,
             encodingID: encodingID,
             format: format,
-            charMap: charMap,
+            charMap: mapping,
+            groups: groups,
           ),
         );
       }
 
-      subtableOffset += 8;
+      position += 8;
     }
 
     return TtfCmapTable(
@@ -257,31 +263,29 @@ class TTFParser {
 
   /// Read horizontal metrics (hmtx table)
   List<TtfHorizontalMetric> readHmtxTable(int numberOfHMetrics, int numGlyphs) {
-    final table = getTable('hmtx');
-    if (table == null) throw FormatException('Missing hmtx table');
-
+    final data = table('hmtx');
     final metrics = <TtfHorizontalMetric>[];
-    var offset = table.offset;
+    var offset = 0;
 
     // Read longHorMetric records
     for (int i = 0; i < numberOfHMetrics; i++) {
-      final advanceWidth = _readUint16(offset);
-      final lsb = _readInt16(offset + 2);
+      final advanceWidth = data.getUint16(offset);
+      final bearing = data.getInt16(offset + 2);
       metrics.add(
-        TtfHorizontalMetric(advanceWidth: advanceWidth, leftSideBearing: lsb),
+        TtfHorizontalMetric(
+          advanceWidth: advanceWidth,
+          leftSideBearing: bearing,
+        ),
       );
       offset += 4;
     }
 
     // Read additional left side bearings
-    final lastAdvanceWidth = metrics.isNotEmpty ? metrics.last.advanceWidth : 0;
+    final last = metrics.isNotEmpty ? metrics.last.advanceWidth : 0;
     for (int i = numberOfHMetrics; i < numGlyphs; i++) {
-      final lsb = _readInt16(offset);
+      final bearing = data.getInt16(offset);
       metrics.add(
-        TtfHorizontalMetric(
-          advanceWidth: lastAdvanceWidth,
-          leftSideBearing: lsb,
-        ),
+        TtfHorizontalMetric(advanceWidth: last, leftSideBearing: bearing),
       );
       offset += 2;
     }
@@ -291,39 +295,20 @@ class TTFParser {
 
   // Helper methods for reading data types
 
-  int readUint8(int offset) => _data.getUint8(offset);
+  int _readUint8(int offset) => _data.getUint8(offset);
 
-  int readInt8(int offset) => _data.getInt8(offset);
+  int _readUint16(int offset) => _data.getUint16(offset);
 
-  int readUint16(int offset) => _data.getUint16(offset);
+  int _readUint32(int offset) => _data.getUint32(offset);
 
-  int readInt16(int offset) => _data.getInt16(offset);
-
-  int readUint32(int offset) => _data.getUint32(offset);
-
-  int readInt32(int offset) => _data.getInt32(offset);
-
-  // Private aliases for internal use
-  int _readUint8(int offset) => readUint8(offset);
-
-  // _readInt8 was removed as it was unused
-
-  int _readUint16(int offset) => readUint16(offset);
-
-  int _readInt16(int offset) => readInt16(offset);
-
-  int _readUint32(int offset) => readUint32(offset);
-
-  int _readInt32(int offset) => readInt32(offset);
-
-  double _readFixed(int offset) {
-    final value = _readInt32(offset);
+  double _readFixed(ByteData data, int offset) {
+    final value = data.getInt32(offset);
     return value / 65536.0;
   }
 
-  DateTime _readLongDateTime(int offset) {
-    final high = _readUint32(offset);
-    final low = _readUint32(offset + 4);
+  DateTime _readLongDateTime(ByteData data, int offset) {
+    final high = data.getUint32(offset);
+    final low = data.getUint32(offset + 4);
     final seconds = (high << 32) | low;
     // Mac epoch (1904-01-01) to Unix epoch (1970-01-01) is 2082844800 seconds
     return DateTime.fromMillisecondsSinceEpoch((seconds - 2082844800) * 1000);
@@ -337,49 +322,49 @@ class TTFParser {
     return String.fromCharCodes(bytes);
   }
 
-  String _readUtf16BeString(int offset, int length) {
-    final codeUnits = <int>[];
+  String _readUtf16BeString(ByteData data, int offset, int length) {
+    final units = <int>[];
     for (int i = 0; i < length; i += 2) {
-      final high = _readUint8(offset + i);
-      final low = _readUint8(offset + i + 1);
-      codeUnits.add((high << 8) | low);
+      final high = data.getUint8(offset + i);
+      final low = data.getUint8(offset + i + 1);
+      units.add((high << 8) | low);
     }
-    return String.fromCharCodes(codeUnits);
+    return String.fromCharCodes(units);
   }
 
-  String _readLatin1String(int offset, int length) {
+  String _readLatin1String(ByteData data, int offset, int length) {
     final bytes = <int>[];
     for (int i = 0; i < length; i++) {
-      bytes.add(_readUint8(offset + i));
+      bytes.add(data.getUint8(offset + i));
     }
     return latin1.decode(bytes);
   }
 
-  String _readMacRomanString(int offset, int length) {
+  String _readMacRomanString(ByteData data, int offset, int length) {
     // Simplified Mac Roman decoding - treat as Latin-1 for now
-    return _readLatin1String(offset, length);
+    return _readLatin1String(data, offset, length);
   }
 
   // Cmap format parsing methods
 
-  Map<int, int> _parseCmapFormat0(int offset) {
-    final charMap = <int, int>{};
+  Map<int, int> _parseCmapFormat0(ByteData data, int offset) {
+    final mapping = <int, int>{};
     // Table length is not used
 
     for (int i = 0; i < 256; i++) {
-      final glyphIndex = _readUint8(offset + 6 + i);
-      if (glyphIndex != 0) {
-        charMap[i] = glyphIndex;
+      final glyph = data.getUint8(offset + 6 + i);
+      if (glyph != 0) {
+        mapping[i] = glyph;
       }
     }
 
-    return charMap;
+    return mapping;
   }
 
-  Map<int, int> _parseCmapFormat4(int offset) {
-    final charMap = <int, int>{};
+  Map<int, int> _parseCmapFormat4(ByteData data, int offset) {
+    final mapping = <int, int>{};
     // Table length is not used
-    final segCount = _readUint16(offset + 6) ~/ 2;
+    final segCount = data.getUint16(offset + 6) ~/ 2;
 
     final endCodes = <int>[];
     final startCodes = <int>[];
@@ -387,32 +372,32 @@ class TTFParser {
     final idRangeOffsets = <int>[];
 
     // Read endCode array
-    var currentOffset = offset + 14;
+    var position = offset + 14;
     for (int i = 0; i < segCount; i++) {
-      endCodes.add(_readUint16(currentOffset));
-      currentOffset += 2;
+      endCodes.add(data.getUint16(position));
+      position += 2;
     }
 
     // Skip reserved pad
-    currentOffset += 2;
+    position += 2;
 
     // Read startCode array
     for (int i = 0; i < segCount; i++) {
-      startCodes.add(_readUint16(currentOffset));
-      currentOffset += 2;
+      startCodes.add(data.getUint16(position));
+      position += 2;
     }
 
     // Read idDelta array
     for (int i = 0; i < segCount; i++) {
-      idDeltas.add(_readInt16(currentOffset));
-      currentOffset += 2;
+      idDeltas.add(data.getInt16(position));
+      position += 2;
     }
 
     // Read idRangeOffset array
-    final idRangeOffsetStart = currentOffset;
+    final idRangeOffsetStart = position;
     for (int i = 0; i < segCount; i++) {
-      idRangeOffsets.add(_readUint16(currentOffset));
-      currentOffset += 2;
+      idRangeOffsets.add(data.getUint16(position));
+      position += 2;
     }
 
     // Process segments
@@ -424,51 +409,54 @@ class TTFParser {
 
       if (startCode <= endCode) {
         for (int c = startCode; c <= endCode; c++) {
-          int glyphIndex;
+          int glyph;
 
           if (idRangeOffset == 0) {
-            glyphIndex = (c + idDelta) & 0xFFFF;
+            glyph = (c + idDelta) & 0xFFFF;
           } else {
-            final glyphOffset =
+            final location =
                 idRangeOffsetStart +
                 i * 2 +
                 idRangeOffset +
                 (c - startCode) * 2;
-            glyphIndex = _readUint16(glyphOffset);
-            if (glyphIndex != 0) {
-              glyphIndex = (glyphIndex + idDelta) & 0xFFFF;
+            glyph = data.getUint16(location);
+            if (glyph != 0) {
+              glyph = (glyph + idDelta) & 0xFFFF;
             }
           }
 
-          if (glyphIndex != 0) {
-            charMap[c] = glyphIndex;
+          if (glyph != 0) {
+            mapping[c] = glyph;
           }
         }
       }
     }
 
-    return charMap;
+    return mapping;
   }
 
-  Map<int, int> _parseCmapFormat12(int offset) {
-    final charMap = <int, int>{};
-    // Table length is not used
-    final numGroups = _readUint32(offset + 12);
+  /// Reads the groups of a format 12 subtable as sorted (start, end, start
+  /// glyph) triples. The group count is clamped to the groups that fit in
+  /// the subtable, and groups that end before they start are dropped.
+  Uint32List _parseCmapFormat12(ByteData data, int offset) {
+    final length = min(data.getUint32(offset + 4), data.lengthInBytes - offset);
+    final count = min(data.getUint32(offset + 12), max(0, (length - 16) ~/ 12));
 
-    var groupOffset = offset + 16;
-    for (int i = 0; i < numGroups; i++) {
-      final startCharCode = _readUint32(groupOffset);
-      final endCharCode = _readUint32(groupOffset + 4);
-      final startGlyphID = _readUint32(groupOffset + 8);
-
-      for (int c = startCharCode; c <= endCharCode; c++) {
-        final glyphIndex = startGlyphID + (c - startCharCode);
-        charMap[c] = glyphIndex;
+    final groups = <(int, int, int)>[];
+    var position = offset + 16;
+    for (int i = 0; i < count; i++) {
+      final startCharCode = data.getUint32(position);
+      final endCharCode = data.getUint32(position + 4);
+      final startGlyphID = data.getUint32(position + 8);
+      if (startCharCode <= endCharCode) {
+        groups.add((startCharCode, endCharCode, startGlyphID));
       }
-
-      groupOffset += 12;
+      position += 12;
     }
+    groups.sort((a, b) => a.$1.compareTo(b.$1));
 
-    return charMap;
+    return Uint32List.fromList([
+      for (final (start, end, glyph) in groups) ...[start, end, glyph],
+    ]);
   }
 }

@@ -2,20 +2,16 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:libgfx/io/local_file_system.dart';
-import 'package:libgfx/src/image/bitmap.dart';
-import 'package:libgfx/src/color/color.dart';
-import 'package:libgfx/src/fonts/ttf/ttf_font.dart';
-import 'package:libgfx/src/graphics_engine_facade.dart';
-import 'package:libgfx/src/matrix.dart';
-import 'package:libgfx/src/paint.dart';
-import 'package:libgfx/src/paths/path.dart';
-import 'package:libgfx/src/utils/transform_utils.dart';
+import 'package:libgfx/libgfx.dart';
 
 void main() async {
   print('Creating pattern paint demonstration...');
 
   const filesystem = LocalGraphicsFileSystem();
-  final engine = GraphicsEngine(1600, 1200, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+  // page units
+  final engine = GraphicsEngine(2 * 1600, 2 * 1200, filesystem: filesystem)
+    ..scale(2, 2);
   engine.clear(const Color(0xFFF5F5F5)); // Off-white background
 
   // Load font for labels
@@ -28,23 +24,20 @@ void main() async {
       .toList();
 
   if (fontFiles.isNotEmpty) {
-    font = await TTFFont.loadFromFile(
-      fontFiles.first.path,
-      filesystem: filesystem,
-    );
+    switch (await TTFFont.load(fontFiles.first.path, filesystem: filesystem)) {
+      case Ok(:final value):
+        font = value;
+      case Err(:final error):
+        print('Failed to load ${fontFiles.first.path}: $error');
+    }
   }
 
   var yPos = 40.0;
 
   // Title
   if (font != null) {
-    engine.setFillColor(const Color(0xFF000000));
-    final titlePath = font.getTextPath(
-      'Pattern Paint Demonstrations',
-      50,
-      yPos,
-      28,
-    );
+    engine.fillStyle = const Color(0xFF000000);
+    final titlePath = font.path('Pattern Paint Demonstrations', 50, yPos, 28);
     engine.fill(titlePath);
   }
   yPos += 60;
@@ -58,12 +51,7 @@ void main() async {
 
   // Section 1: Basic Pattern Fills
   if (font != null) {
-    final sectionPath = font.getTextPath(
-      '1. Basic Pattern Fills',
-      50,
-      yPos,
-      18,
-    );
+    final sectionPath = font.path('1. Basic Pattern Fills', 50, yPos, 18);
     engine.fill(sectionPath);
   }
   yPos += 40;
@@ -79,8 +67,9 @@ void main() async {
 
   for (final (pattern, name) in patterns) {
     // Set pattern as fill
-    engine.setFillPaint(
-      PatternPaint(pattern: pattern, repeat: PatternRepeat.repeat),
+    engine.fillStyle = PatternPaint(
+      pattern: pattern,
+      repeat: PatternRepeat.repeat,
     );
 
     // Draw filled rectangle
@@ -89,13 +78,13 @@ void main() async {
       ..lineTo(xPos + 120, yPos)
       ..lineTo(xPos + 120, yPos + 80)
       ..lineTo(xPos, yPos + 80)
-      ..close();
+      ..closePath();
     engine.fill(rectPath.build());
 
     // Label
     if (font != null) {
-      engine.setFillColor(const Color(0xFF000000));
-      final labelPath = font.getTextPath(name, xPos + 30, yPos + 100, 12);
+      engine.fillStyle = const Color(0xFF000000);
+      final labelPath = font.path(name, xPos + 30, yPos + 100, 12);
       engine.fill(labelPath);
     }
 
@@ -106,13 +95,8 @@ void main() async {
 
   // Section 2: Pattern Transformations
   if (font != null) {
-    engine.setFillColor(const Color(0xFF000000));
-    final sectionPath = font.getTextPath(
-      '2. Pattern Transformations',
-      50,
-      yPos,
-      18,
-    );
+    engine.fillStyle = const Color(0xFF000000);
+    final sectionPath = font.path('2. Pattern Transformations', 50, yPos, 18);
     engine.fill(sectionPath);
   }
   yPos += 40;
@@ -123,17 +107,15 @@ void main() async {
     ('Scaled 2x', Matrix2D.scaling(2.0, 2.0)),
     ('Rotated 45°', Matrix2D.rotation(math.pi / 4)),
     ('Skewed', Matrix2D(1.0, 0.3, 0.2, 1.0, 0, 0)),
-    ('Complex', TransformUtils.createSRT(1.5, 1.5, math.pi / 6, 0, 0)),
+    ('Complex', TransformUtils.reverse(1.5, 1.5, math.pi / 6, 0, 0)),
   ];
 
   for (final (name, transform) in transformTests) {
     // Set pattern with transformation
-    engine.setFillPaint(
-      PatternPaint(
-        pattern: stripePattern,
-        repeat: PatternRepeat.repeat,
-        transform: transform,
-      ),
+    engine.fillStyle = PatternPaint(
+      pattern: stripePattern,
+      repeat: PatternRepeat.repeat,
+      transform: transform,
     );
 
     // Draw filled circle
@@ -142,8 +124,8 @@ void main() async {
 
     // Label
     if (font != null) {
-      engine.setFillColor(const Color(0xFF000000));
-      final labelPath = font.getTextPath(name, xPos + 20, yPos + 90, 12);
+      engine.fillStyle = const Color(0xFF000000);
+      final labelPath = font.path(name, xPos + 20, yPos + 90, 12);
       engine.fill(labelPath);
     }
 
@@ -154,13 +136,8 @@ void main() async {
 
   // Section 3: Pattern Repeat Modes
   if (font != null) {
-    engine.setFillColor(const Color(0xFF000000));
-    final sectionPath = font.getTextPath(
-      '3. Pattern Repeat Modes',
-      50,
-      yPos,
-      18,
-    );
+    engine.fillStyle = const Color(0xFF000000);
+    final sectionPath = font.path('3. Pattern Repeat Modes', 50, yPos, 18);
     engine.fill(sectionPath);
   }
   yPos += 40;
@@ -178,7 +155,7 @@ void main() async {
 
   for (final (mode, name) in repeatModes) {
     // Set pattern with repeat mode
-    engine.setFillPaint(PatternPaint(pattern: largePattern, repeat: mode));
+    engine.fillStyle = PatternPaint(pattern: largePattern, repeat: mode);
 
     // Draw filled rectangle
     final rectPath = PathBuilder()
@@ -186,18 +163,18 @@ void main() async {
       ..lineTo(xPos + 150, yPos)
       ..lineTo(xPos + 150, yPos + 100)
       ..lineTo(xPos, yPos + 100)
-      ..close();
+      ..closePath();
     engine.fill(rectPath.build());
 
     // Draw border for clarity
-    engine.setStrokeColor(const Color(0xFF333333));
-    engine.setLineWidth(1);
+    engine.strokeStyle = const Color(0xFF333333);
+    engine.lineWidth = 1;
     engine.stroke(rectPath.build());
 
     // Label
     if (font != null) {
-      engine.setFillColor(const Color(0xFF000000));
-      final labelPath = font.getTextPath(name, xPos + 45, yPos + 120, 12);
+      engine.fillStyle = const Color(0xFF000000);
+      final labelPath = font.path(name, xPos + 45, yPos + 120, 12);
       engine.fill(labelPath);
     }
 
@@ -208,8 +185,8 @@ void main() async {
 
   // Section 4: Pattern Opacity
   if (font != null) {
-    engine.setFillColor(const Color(0xFF000000));
-    final sectionPath = font.getTextPath('4. Pattern Opacity', 50, yPos, 18);
+    engine.fillStyle = const Color(0xFF000000);
+    final sectionPath = font.path('4. Pattern Opacity', 50, yPos, 18);
     engine.fill(sectionPath);
   }
   yPos += 40;
@@ -219,29 +196,27 @@ void main() async {
 
   for (final opacity in opacities) {
     // Draw background color
-    engine.setFillColor(const Color(0xFF4169E1)); // Royal Blue
+    engine.fillStyle = const Color(0xFF4169E1); // Royal Blue
     final bgPath = PathBuilder()
       ..moveTo(xPos, yPos)
       ..lineTo(xPos + 120, yPos)
       ..lineTo(xPos + 120, yPos + 80)
       ..lineTo(xPos, yPos + 80)
-      ..close();
+      ..closePath();
     engine.fill(bgPath.build());
 
     // Overlay pattern with opacity
-    engine.setFillPaint(
-      PatternPaint(
-        pattern: checkerPattern,
-        repeat: PatternRepeat.repeat,
-        opacity: opacity,
-      ),
+    engine.fillStyle = PatternPaint(
+      pattern: checkerPattern,
+      repeat: PatternRepeat.repeat,
+      opacity: opacity,
     );
     engine.fill(bgPath.build());
 
     // Label
     if (font != null) {
-      engine.setFillColor(const Color(0xFF000000));
-      final labelPath = font.getTextPath(
+      engine.fillStyle = const Color(0xFF000000);
+      final labelPath = font.path(
         '${(opacity * 100).toInt()}%',
         xPos + 45,
         yPos + 100,
@@ -257,8 +232,8 @@ void main() async {
 
   // Section 5: Complex Shapes with Patterns
   if (font != null) {
-    engine.setFillColor(const Color(0xFF000000));
-    final sectionPath = font.getTextPath(
+    engine.fillStyle = const Color(0xFF000000);
+    final sectionPath = font.path(
       '5. Complex Shapes with Patterns',
       50,
       yPos,
@@ -271,8 +246,9 @@ void main() async {
   xPos = 100.0;
 
   // Star shape with pattern
-  engine.setFillPaint(
-    PatternPaint(pattern: gradientPattern, repeat: PatternRepeat.repeat),
+  engine.fillStyle = PatternPaint(
+    pattern: gradientPattern,
+    repeat: PatternRepeat.repeat,
   );
   final starPath = createStarPath(xPos + 60, yPos + 50, 40, 20, 5);
   engine.fill(starPath);
@@ -280,12 +256,10 @@ void main() async {
   xPos += 150;
 
   // Heart shape with pattern
-  engine.setFillPaint(
-    PatternPaint(
-      pattern: dotPattern,
-      repeat: PatternRepeat.repeat,
-      transform: Matrix2D.identity()..scale(0.5, 0.5),
-    ),
+  engine.fillStyle = PatternPaint(
+    pattern: dotPattern,
+    repeat: PatternRepeat.repeat,
+    transform: Matrix2D.identity()..scale(0.5, 0.5),
   );
   final heartPath = createHeartPath(xPos + 60, yPos + 50, 40);
   engine.fill(heartPath);
@@ -294,30 +268,36 @@ void main() async {
 
   // Text with pattern fill
   if (font != null) {
-    engine.setFillPaint(
-      PatternPaint(
-        pattern: stripePattern,
-        repeat: PatternRepeat.repeat,
-        transform: Matrix2D.identity()..rotateZ(-math.pi / 12),
-      ),
+    engine.fillStyle = PatternPaint(
+      pattern: stripePattern,
+      repeat: PatternRepeat.repeat,
+      transform: Matrix2D.identity()..rotate(-math.pi / 12),
     );
-    final textPath = font.getTextPath('PATTERN', xPos, yPos + 60, 48);
+    final textPath = font.path('PATTERN', xPos, yPos + 60, 48);
     engine.fill(textPath);
   }
 
   xPos += 250;
 
   // Bezier curve with pattern stroke
-  engine.setStrokePaint(
-    PatternPaint(pattern: diamondPattern, repeat: PatternRepeat.repeat),
+  engine.strokeStyle = PatternPaint(
+    pattern: diamondPattern,
+    repeat: PatternRepeat.repeat,
   );
-  engine.setLineWidth(15);
+  engine.lineWidth = 15;
   final curvePath = PathBuilder()
     ..moveTo(xPos, yPos + 60)
-    ..curveTo(xPos + 50, yPos, xPos + 100, yPos + 100, xPos + 150, yPos + 40);
+    ..bezierCurveTo(
+      xPos + 50,
+      yPos,
+      xPos + 100,
+      yPos + 100,
+      xPos + 150,
+      yPos + 40,
+    );
   engine.stroke(curvePath.build());
 
-  await engine.saveToFile('output/pattern_paint_demo.ppm');
+  await engine.write('output/pattern_paint_demo.ppm');
   print('\nCreated output/pattern_paint_demo.ppm');
 
   print('\n🎨 Pattern Paint Features Summary:');
@@ -360,7 +340,7 @@ Bitmap createCheckerboardPattern(int width, int height) {
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
       final isWhite = ((x ~/ cellSize) + (y ~/ cellSize)) % 2 == 0;
-      image.setPixel(
+      image.plot(
         x,
         y,
         isWhite ? const Color(0xFFFFFFFF) : const Color(0xFF333333),
@@ -378,7 +358,7 @@ Bitmap createStripePattern(int width, int height) {
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
       final isStripe = (x ~/ stripeWidth) % 2 == 0;
-      image.setPixel(
+      image.plot(
         x,
         y,
         isStripe ? const Color(0xFF2E86AB) : const Color(0xFFA0E7E5),
@@ -397,7 +377,7 @@ Bitmap createDotPattern(int width, int height) {
   // Fill with background
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
-      image.setPixel(x, y, const Color(0xFFFFF0F5)); // Lavender blush
+      image.plot(x, y, const Color(0xFFFFF0F5)); // Lavender blush
     }
   }
 
@@ -410,7 +390,7 @@ Bitmap createDotPattern(int width, int height) {
             final dx = x - cx;
             final dy = y - cy;
             if (dx * dx + dy * dy <= dotRadius * dotRadius) {
-              image.setPixel(x, y, const Color(0xFFFF69B4)); // Hot pink
+              image.plot(x, y, const Color(0xFFFF69B4)); // Hot pink
             }
           }
         }
@@ -430,7 +410,7 @@ Bitmap createDiamondPattern(int width, int height) {
       final dy = (y % 16) - 8;
       final inDiamond = dx.abs() + dy.abs() <= 6;
 
-      image.setPixel(
+      image.plot(
         x,
         y,
         inDiamond
@@ -452,7 +432,7 @@ Bitmap createGradientPattern(int width, int height) {
       final r = (255 * (1 - t)).round();
       final g = (100 + 155 * t).round();
       final b = (255 * t).round();
-      image.setPixel(x, y, Color.fromRGBA(r, g, b, 255));
+      image.plot(x, y, Color.fromRGBA(r, g, b, 255));
     }
   }
 
@@ -487,7 +467,7 @@ Bitmap createLargePattern(int width, int height) {
       final g = (color.green - noise).clamp(0, 255);
       final b = (color.blue - noise).clamp(0, 255);
 
-      image.setPixel(x, y, Color.fromRGBA(r, g, b, 255));
+      image.plot(x, y, Color.fromRGBA(r, g, b, 255));
     }
   }
 
@@ -510,7 +490,7 @@ Path createCirclePath(double cx, double cy, double radius) {
     }
   }
 
-  builder.close();
+  builder.closePath();
   return builder.build();
 }
 
@@ -537,7 +517,7 @@ Path createStarPath(
     }
   }
 
-  builder.close();
+  builder.closePath();
   return builder.build();
 }
 
@@ -548,7 +528,7 @@ Path createHeartPath(double cx, double cy, double size) {
   builder.moveTo(cx, cy + size * 0.3);
 
   // Left side of heart
-  builder.curveTo(
+  builder.bezierCurveTo(
     cx - size * 0.5,
     cy,
     cx - size,
@@ -557,7 +537,7 @@ Path createHeartPath(double cx, double cy, double size) {
     cy - size * 0.5,
   );
 
-  builder.curveTo(
+  builder.bezierCurveTo(
     cx - size,
     cy - size * 0.8,
     cx - size * 0.5,
@@ -567,7 +547,7 @@ Path createHeartPath(double cx, double cy, double size) {
   );
 
   // Right side of heart
-  builder.curveTo(
+  builder.bezierCurveTo(
     cx + size * 0.5,
     cy - size,
     cx + size,
@@ -576,7 +556,7 @@ Path createHeartPath(double cx, double cy, double size) {
     cy - size * 0.5,
   );
 
-  builder.curveTo(
+  builder.bezierCurveTo(
     cx + size,
     cy - size * 0.3,
     cx + size * 0.5,
@@ -585,6 +565,6 @@ Path createHeartPath(double cx, double cy, double size) {
     cy + size * 0.3,
   );
 
-  builder.close();
+  builder.closePath();
   return builder.build();
 }

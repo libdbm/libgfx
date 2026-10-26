@@ -1,12 +1,18 @@
+import 'dart:math' show max;
 import 'dart:typed_data';
 
 import '../../errors.dart';
+
+import '../../limits.dart';
+import '../../logging.dart';
 import '../../matrix.dart';
 import '../../paths/path.dart';
 import '../../point.dart';
+import '../../result.dart';
 import '../../text/text_types.dart' show TextMetrics;
 import '../font.dart';
 import '../font_error_messages.dart';
+import 'gsub.dart';
 import 'ttf_parser.dart';
 import 'ttf_tables.dart';
 import '../../io/file_system.dart';
@@ -14,119 +20,308 @@ import '../../io/file_system.dart';
 /// TrueType font implementation
 class TTFFont extends Font {
   final TTFParser _parser;
-  late final TtfHeadTable _headTable;
-  late final TtfHheaTable _hheaTable;
-  late final TtfMaxpTable _maxpTable;
-  late final TtfNameTable _nameTable;
-  late final TtfCmapTable _cmapTable;
-  late final List<TtfHorizontalMetric> _hmtxTable;
-  TtfLocaTable? _locaTable;
-  TtfKernTable? _kernTable;
+  late final TtfHeadTable _head;
+  late final TtfHheaTable _hhea;
+  late final TtfMaxpTable _maxp;
+  late final TtfNameTable _names;
+  late final TtfCmapTable _cmap;
+  late final List<TtfHorizontalMetric> _hmtx;
+  TtfLocaTable? _loca;
+  TtfKernTable? _kern;
 
-  TTFFont._(this._parser) {
+  /// The `ccmp` and `liga` ligatures, or null when the font has no GSUB or
+  /// its GSUB could not be read
+  Gsub? _gsub;
+
+  /// Outlines in font units, indexed by glyph, decoded on first use.
+  late final List<Path?> _outlines = List.filled(_maxp.numGlyphs, null);
+  int _decodes = 0;
+
+  TTFFont._(this._parser, final Limits limits) {
     _loadTables();
+    _validate(limits);
+    _substitutions(limits);
+  }
+
+  @override
+  List<(int, int)> ligate(final List<int> glyphs) =>
+      _gsub?.apply(glyphs) ?? super.ligate(glyphs);
+
+  /// Reads the GSUB ligatures. A GSUB that is malformed or over [limits]
+  /// is logged and ignored: the font draws without ligatures.
+  void _substitutions(final Limits limits) {
+    if (!_parser.hasTable('GSUB')) return;
+    try {
+      _gsub = Gsub.parse(
+        _parser.table('GSUB'),
+        const {'ccmp', 'liga'},
+        _maxp.numGlyphs,
+        limits,
+      );
+    } on Object catch (error) {
+      if (error is! RangeError &&
+          error is! FormatException &&
+          error is! ResourceLimitException) {
+        rethrow;
+      }
+      logger.warning('Ignoring the GSUB table of $name: $error');
+    }
   }
 
   /// Load a TrueType font from file using the injected [GraphicsFileSystem].
-  static Future<TTFFont> loadFromFile(
+  static Future<Result<TTFFont, ErrorDetails>> load(
     String path, {
     required GraphicsFileSystem filesystem,
+    Limits limits = const Limits(),
   }) async {
-    final bytes = await filesystem.readFile(path);
-    if (bytes == null) {
-      throw FontException('${FontErrorMessages.fontFileNotFound}$path');
+    final Uint8List? bytes;
+    try {
+      bytes = await filesystem.read(path);
+    } on Exception catch (error) {
+      return Err(ErrorDetails(ErrorKind.io, 'Cannot read $path', error));
     }
-    return TTFFont.fromBytes(bytes);
+    if (bytes == null) {
+      return Err(
+        ErrorDetails(
+          ErrorKind.io,
+          '${FontErrorMessages.fontFileNotFound}$path',
+        ),
+      );
+    }
+    return TTFFont.fromBytes(bytes, limits: limits);
   }
 
-  /// Load a TrueType font from bytes
-  static TTFFont fromBytes(Uint8List bytes) {
-    final parser = TTFParser(bytes);
-    return TTFFont._(parser);
+  /// Load a TrueType font from bytes. Exceptions raised by malformed or
+  /// truncated data become an [Err]; any other exception is a programming
+  /// error and propagates. A file larger than [Limits.font] is rejected
+  /// before parsing.
+  static Result<TTFFont, ErrorDetails> fromBytes(
+    Uint8List bytes, {
+    final Limits limits = const Limits(),
+  }) {
+    if (bytes.length > limits.font) {
+      return Err(
+        ErrorDetails(
+          ErrorKind.limit,
+          'Font of ${bytes.length} bytes exceeds the limit of '
+          '${limits.font} bytes',
+        ),
+      );
+    }
+    try {
+      return Ok(TTFFont._(TTFParser(bytes), limits));
+    } on RangeError catch (error) {
+      return Err(
+        ErrorDetails(ErrorKind.truncated, 'Font data ended early', error),
+      );
+    } on FormatException catch (error) {
+      return Err(ErrorDetails(ErrorKind.malformed, error.message, error));
+    } on ResourceLimitException catch (error) {
+      return Err(ErrorDetails(ErrorKind.limit, error.message, error));
+    }
   }
 
   void _loadTables() {
     // Load required tables
-    _headTable = _parser.readHeadTable();
-    _hheaTable = _parser.readHheaTable();
-    _maxpTable = _parser.readMaxpTable();
-    _nameTable = _parser.readNameTable();
-    _cmapTable = _parser.readCmapTable();
-    _hmtxTable = _parser.readHmtxTable(
-      _hheaTable.numberOfHMetrics,
-      _maxpTable.numGlyphs,
-    );
+    _head = _parser.readHeadTable();
+    _hhea = _parser.readHheaTable();
+    _maxp = _parser.readMaxpTable();
+    _names = _parser.readNameTable();
+    _cmap = _parser.readCmapTable();
+    _hmtx = _parser.readHmtxTable(_hhea.numberOfHMetrics, _maxp.numGlyphs);
 
     // Load optional tables
     if (_parser.hasTable('loca')) {
-      _locaTable = _readLocaTable();
+      _loca = _readLocaTable();
     }
 
     if (_parser.hasTable('kern')) {
-      _kernTable = _readKernTable();
+      _kern = _readKernTable();
     }
   }
 
+  /// Expands the size of every glyph once, so that drawing a composite
+  /// glyph cannot recurse without bound. A composite that refers to itself,
+  /// or matches a point that it or its component does not have, throws
+  /// [FormatException]; nesting deeper than [Limits.depth] or a glyph larger
+  /// than [Limits.points] throws [ResourceLimitException].
+  void _validate(final Limits limits) {
+    if (_loca == null || !_parser.hasTable('glyf')) return;
+    final sizes = <int, int>{};
+    final heights = <int, int>{};
+    final counts = <int, int>{}; // points of each glyph
+    final active = <int>{};
+
+    void exceed(final int glyph) => throw ResourceLimitException(
+      'Glyph $glyph exceeds the limits of ${limits.depth} nested composites '
+      'and ${limits.points} points',
+    );
+
+    // Returns the expanded size of glyph, reached at depth nested composites
+    int expand(final int glyph, final int depth) {
+      final known = sizes[glyph];
+      if (known != null) return known;
+      if (depth > limits.depth) exceed(glyph);
+      if (!active.add(glyph)) {
+        throw FormatException('Composite glyph $glyph refers to itself');
+      }
+      final data = _record(glyph);
+      var size = 0;
+      var height = 0;
+      var count = 0;
+      if (data != null) {
+        final contours = data.getInt16(0);
+        if (contours >= 0) {
+          size = count = _check(data, contours);
+        } else {
+          for (final component in _components(data)) {
+            size += 1 + expand(component.glyph, depth + 1);
+            height = max(height, heights[component.glyph]! + 1);
+            if (size > limits.points) exceed(glyph);
+            final points = counts[component.glyph]!;
+            if (component.matched &&
+                (component.first >= count || component.second >= points)) {
+              throw FormatException(
+                'Composite glyph $glyph matches a point it does not have',
+              );
+            }
+            count += points;
+          }
+        }
+      }
+      if (size > limits.points || height > limits.depth) exceed(glyph);
+      active.remove(glyph);
+      heights[glyph] = height;
+      counts[glyph] = count;
+      return sizes[glyph] = size;
+    }
+
+    for (var glyph = 0; glyph < _maxp.numGlyphs; glyph++) {
+      expand(glyph, 0);
+    }
+  }
+
+  /// Checks that the simple glyph record [data] with [contours] contours
+  /// holds everything `_read` reads, and returns its number of
+  /// points. Flags are walked a run at a time, so the cost follows the
+  /// record's length rather than the points it declares. Throws
+  /// [FormatException] for end points that do not increase or flags that
+  /// repeat past the last point, and [RangeError] for a record that ends
+  /// early.
+  static int _check(final ByteData data, final int contours) {
+    var last = -1;
+    for (var i = 0; i < contours; i++) {
+      final end = data.getUint16(10 + i * 2);
+      if (end <= last) {
+        throw FormatException('Glyph contour end points do not increase');
+      }
+      last = end;
+    }
+    final points = last + 1;
+    var position = 10 + contours * 2;
+    position += 2 + data.getUint16(position);
+
+    // Bytes of x and y coordinates the flags call for
+    var bytes = 0;
+    var count = 0;
+    while (count < points) {
+      final flag = data.getUint8(position++);
+      final run = flag & 0x08 != 0 ? 1 + data.getUint8(position++) : 1;
+      count += run;
+      if (count > points) {
+        throw FormatException('Glyph flags repeat past the last point');
+      }
+      final x = flag & 0x02 != 0 ? 1 : (flag & 0x10 != 0 ? 0 : 2);
+      final y = flag & 0x04 != 0 ? 1 : (flag & 0x20 != 0 ? 0 : 2);
+      bytes += run * (x + y);
+    }
+    if (position + bytes > data.lengthInBytes) {
+      throw RangeError('Glyph coordinates end early');
+    }
+    return points;
+  }
+
   TtfLocaTable _readLocaTable() {
-    final table = _parser.getTable('loca')!;
-    final isShortFormat = _headTable.isShortLocaFormat;
-    final count = _maxpTable.numGlyphs;
+    final data = _parser.table('loca');
+    final short = _head.isShortLocaFormat;
+    final count = _maxp.numGlyphs;
     final offsets = <int>[];
 
-    var offset = table.offset;
+    var offset = 0;
 
-    if (isShortFormat) {
+    if (short) {
       // Short format: offsets are stored as uint16 * 2
       for (int i = 0; i <= count; i++) {
-        final shortOffset = _parser.readUint16(offset);
-        offsets.add(shortOffset * 2);
+        final value = data.getUint16(offset);
+        offsets.add(value * 2);
         offset += 2;
       }
     } else {
       // Long format: offsets are stored as uint32
       for (int i = 0; i <= count; i++) {
-        final longOffset = _parser.readUint32(offset);
-        offsets.add(longOffset);
+        final value = data.getUint32(offset);
+        offsets.add(value);
         offset += 4;
       }
     }
 
-    return TtfLocaTable(offsets: offsets, isShortFormat: isShortFormat);
+    // Every glyph's range must lie within glyf and not end before it starts
+    if (_parser.hasTable('glyf')) {
+      final length = _parser.table('glyf').lengthInBytes;
+      for (var i = 0; i <= count; i++) {
+        if (offsets[i] > length || (i > 0 && offsets[i] < offsets[i - 1])) {
+          throw FormatException('Glyph location $i is out of order or range');
+        }
+      }
+    }
+
+    return TtfLocaTable(offsets: offsets, isShortFormat: short);
+  }
+
+  /// The record of [glyph] in `glyf`, bounded by its `loca` range so that it
+  /// cannot be read past, or null if the glyph has no outline.
+  ByteData? _record(final int glyph) {
+    final loca = _loca;
+    if (loca == null || !_parser.hasTable('glyf')) return null;
+    final length = loca.getGlyphLength(glyph);
+    if (length == 0) return null;
+    final start = loca.getGlyphOffset(glyph);
+    return ByteData.sublistView(_parser.table('glyf'), start, start + length);
   }
 
   TtfKernTable? _readKernTable() {
-    final table = _parser.getTable('kern');
-    if (table == null) return null;
+    if (!_parser.hasTable('kern')) return null;
+    final data = _parser.table('kern');
 
-    var offset = table.offset;
-    final version = _parser.readUint16(offset);
-    final numTables = _parser.readUint16(offset + 2);
+    var offset = 0;
+    final version = data.getUint16(offset);
+    final numTables = data.getUint16(offset + 2);
     offset += 4;
 
     final subtables = <TtfKernSubtable>[];
 
     for (int i = 0; i < numTables; i++) {
-      final subtableVersion = _parser.readUint16(offset);
-      final length = _parser.readUint16(offset + 2);
-      final format = _parser.readUint8(offset + 4);
-      final coverage = _parser.readUint8(offset + 5);
+      final subtableVersion = data.getUint16(offset);
+      final length = data.getUint16(offset + 2);
+      final format = data.getUint8(offset + 4);
+      final coverage = data.getUint8(offset + 5);
 
-      Map<int, int> kerningPairs = {};
+      Map<int, int> pairs = {};
 
       if (format == 0) {
         // Format 0: ordered list of kerning pairs
-        final numPairs = _parser.readUint16(offset + 6);
-        var pairOffset = offset + 14; // Skip header
+        final count = data.getUint16(offset + 6);
+        var position = offset + 14; // Skip header
 
-        for (int p = 0; p < numPairs; p++) {
-          final left = _parser.readUint16(pairOffset);
-          final right = _parser.readUint16(pairOffset + 2);
-          final value = _parser.readInt16(pairOffset + 4);
+        for (int p = 0; p < count; p++) {
+          final left = data.getUint16(position);
+          final right = data.getUint16(position + 2);
+          final value = data.getInt16(position + 4);
 
-          final pairKey = (left << 16) | right;
-          kerningPairs[pairKey] = value;
+          final key = (left << 16) | right;
+          pairs[key] = value;
 
-          pairOffset += 6;
+          position += 6;
         }
       }
 
@@ -136,7 +331,7 @@ class TTFFont extends Font {
           length: length,
           format: format,
           coverage: coverage,
-          kerningPairs: kerningPairs,
+          kerningPairs: pairs,
         ),
       );
 
@@ -151,20 +346,20 @@ class TTFFont extends Font {
   }
 
   @override
-  String get familyName => _nameTable.fontFamily ?? 'Unknown';
+  String get family => _names.fontFamily ?? 'Unknown';
 
   @override
-  String get styleName => _nameTable.fontSubfamily ?? 'Regular';
+  String get style => _names.fontSubfamily ?? 'Regular';
 
   @override
-  int get unitsPerEm => _headTable.unitsPerEm;
+  int get unitsPerEm => _head.unitsPerEm;
 
   @override
   FontMetrics get metrics => FontMetrics(
-    ascender: _hheaTable.ascender,
-    descender: _hheaTable.descender,
-    lineGap: _hheaTable.lineGap,
-    maxAdvanceWidth: _hheaTable.advanceWidthMax,
+    ascender: _hhea.ascender,
+    descender: _hhea.descender,
+    lineGap: _hhea.lineGap,
+    maxAdvanceWidth: _hhea.advanceWidthMax,
     maxAdvanceHeight: 0,
     // Not available in TrueType
     underlineThickness: 50,
@@ -173,18 +368,20 @@ class TTFFont extends Font {
   );
 
   @override
-  bool hasGlyph(int codePoint) {
-    return _cmapTable.getGlyphIndex(codePoint) != 0;
+  bool covers(int codePoint) {
+    return glyph(codePoint) != 0;
   }
 
   @override
-  int getGlyphIndex(int codePoint) {
-    return _cmapTable.getGlyphIndex(codePoint);
+  int glyph(int codePoint) {
+    // A glyph id outside the font is treated as missing
+    final glyph = _cmap.getGlyphIndex(codePoint);
+    return glyph < _maxp.numGlyphs ? glyph : 0;
   }
 
   @override
-  GlyphMetrics getGlyphMetrics(int glyphIndex) {
-    if (glyphIndex < 0 || glyphIndex >= _hmtxTable.length) {
+  GlyphMetrics dimensions(final int glyph) {
+    if (glyph < 0 || glyph >= _hmtx.length) {
       return const GlyphMetrics(
         advanceWidth: 0,
         advanceHeight: 0,
@@ -194,26 +391,25 @@ class TTFFont extends Font {
       );
     }
 
-    final metric = _hmtxTable[glyphIndex];
+    final metric = _hmtx[glyph];
 
     // Get bounding box from glyph data if available
-    GlyphBoundingBox boundingBox = const GlyphBoundingBox(
+    GlyphBoundingBox box = const GlyphBoundingBox(
       xMin: 0,
       yMin: 0,
       xMax: 0,
       yMax: 0,
     );
 
-    if (_locaTable != null && _parser.hasTable('glyf')) {
-      final glyphData = _readGlyphData(glyphIndex);
-      if (glyphData != null) {
-        boundingBox = GlyphBoundingBox(
-          xMin: glyphData.xMin,
-          yMin: glyphData.yMin,
-          xMax: glyphData.xMax,
-          yMax: glyphData.yMax,
-        );
-      }
+    // The bounding box is in the glyph header, so the outline is not read
+    final data = _record(glyph);
+    if (data != null) {
+      box = GlyphBoundingBox(
+        xMin: data.getInt16(2),
+        yMin: data.getInt16(4),
+        xMax: data.getInt16(6),
+        yMax: data.getInt16(8),
+      );
     }
 
     return GlyphMetrics(
@@ -221,117 +417,123 @@ class TTFFont extends Font {
       advanceHeight: 0,
       leftSideBearing: metric.leftSideBearing,
       topSideBearing: 0,
-      boundingBox: boundingBox,
+      boundingBox: box,
     );
   }
 
   @override
-  Path getGlyphPath(int glyphIndex, double fontSize) {
-    final glyphData = _readGlyphData(glyphIndex);
-    if (glyphData == null) {
+  Path outline(final int glyph, final double size) {
+    final scale = size / unitsPerEm;
+    return _outline(glyph).transform(Matrix2D.scaling(scale, scale));
+  }
+
+  /// Number of glyph outlines decoded so far. Outlines are cached, so each
+  /// glyph is decoded at most once.
+  int get decodes => _decodes;
+
+  /// The outline of [glyph] in font units, decoded on first use.
+  Path _outline(final int glyph) {
+    if (glyph < 0 || glyph >= _outlines.length) return Path();
+    return _outlines[glyph] ??= _decode(glyph);
+  }
+
+  /// Decodes the outline of [glyph] in font units.
+  Path _decode(final int glyph) {
+    _decodes++;
+    final data = _read(glyph);
+    if (data == null) {
       return Path(); // Return empty path for missing glyphs
     }
 
     // Handle composite glyphs
-    if (!glyphData.isSimpleGlyph) {
-      return _getCompositeGlyphPath(glyphIndex, fontSize);
+    if (!data.isSimpleGlyph) {
+      return _composite(glyph);
     }
 
-    final scale = fontSize / unitsPerEm;
     final path = Path();
 
     // Sort contours by area to ensure proper nesting order (largest first)
-    final sortedContours = List.from(glyphData.contours);
-    sortedContours.sort((a, b) {
-      final areaA = _calculateContourArea(a.points).abs();
-      final areaB = _calculateContourArea(b.points).abs();
+    final sorted = List.from(data.contours);
+    sorted.sort((a, b) {
+      final areaA = _area(a.points).abs();
+      final areaB = _area(b.points).abs();
       return areaB.compareTo(areaA); // Descending order (largest first)
     });
 
-    for (final contour in sortedContours) {
+    for (final contour in sorted) {
       if (contour.points.isEmpty) continue;
 
       final points = contour.points;
-      var currentPoint = 0;
+      var index = 0;
 
       // Start the contour
-      final firstPoint = points[0];
-      path.addCommand(
+      final first = points[0];
+      path.add(
         PathCommand(PathCommandType.moveTo, [
-          Point(firstPoint.x * scale, firstPoint.y * scale),
+          Point(first.x.toDouble(), first.y.toDouble()),
         ]),
       );
 
-      currentPoint = 1;
+      index = 1;
 
-      while (currentPoint < points.length) {
-        final point = points[currentPoint];
+      while (index < points.length) {
+        final point = points[index];
 
         if (point.onCurve) {
           // Straight line to on-curve point
-          path.addCommand(
+          path.add(
             PathCommand(PathCommandType.lineTo, [
-              Point(point.x * scale, point.y * scale),
+              Point(point.x.toDouble(), point.y.toDouble()),
             ]),
           );
-          currentPoint++;
+          index++;
         } else {
           // Quadratic Bézier curve
-          final controlPoint = point;
-          late Point endPoint;
+          final control = point;
+          late Point end;
 
-          if (currentPoint + 1 < points.length &&
-              points[currentPoint + 1].onCurve) {
+          if (index + 1 < points.length && points[index + 1].onCurve) {
             // Next point is on-curve, use it as end point
-            final nextPoint = points[currentPoint + 1];
-            endPoint = Point(nextPoint.x.toDouble(), nextPoint.y.toDouble());
-            currentPoint += 2;
+            final next = points[index + 1];
+            end = Point(next.x.toDouble(), next.y.toDouble());
+            index += 2;
           } else {
             // Next point is also off-curve, interpolate between them
-            final nextControlPoint = points[(currentPoint + 1) % points.length];
-            endPoint = Point.midpoint(
-              Point(controlPoint.x.toDouble(), controlPoint.y.toDouble()),
-              Point(
-                nextControlPoint.x.toDouble(),
-                nextControlPoint.y.toDouble(),
-              ),
+            final following = points[(index + 1) % points.length];
+            end = Point.midpoint(
+              Point(control.x.toDouble(), control.y.toDouble()),
+              Point(following.x.toDouble(), following.y.toDouble()),
             );
-            currentPoint += 1;
+            index += 1;
           }
 
           // Convert quadratic to cubic Bézier
-          final lastCmd = path.commands.isNotEmpty ? path.commands.last : null;
-          Point startPoint;
+          final last = path.commands.isNotEmpty ? path.commands.last : null;
+          Point start;
 
-          if (lastCmd != null && lastCmd.points.isNotEmpty) {
-            final lastPoint = lastCmd.points.last;
-            startPoint = Point(lastPoint.x / scale, lastPoint.y / scale);
+          if (last != null && last.points.isNotEmpty) {
+            start = last.points.last;
           } else {
-            startPoint = Point(
-              firstPoint.x.toDouble(),
-              firstPoint.y.toDouble(),
-            );
+            start = Point(first.x.toDouble(), first.y.toDouble());
           }
 
           // Convert quadratic (P0, P1, P2) to cubic (P0, C1, C2, P2)
-          final cp1x =
-              startPoint.x + 2.0 / 3.0 * (controlPoint.x - startPoint.x);
-          final cp1y =
-              startPoint.y + 2.0 / 3.0 * (controlPoint.y - startPoint.y);
-          final cp2x = endPoint.x + 2.0 / 3.0 * (controlPoint.x - endPoint.x);
-          final cp2y = endPoint.y + 2.0 / 3.0 * (controlPoint.y - endPoint.y);
+          final cp1x = start.x + 2.0 / 3.0 * (control.x - start.x);
+          final cp1y = start.y + 2.0 / 3.0 * (control.y - start.y);
+          final cp2x = end.x + 2.0 / 3.0 * (control.x - end.x);
+          final cp2y = end.y + 2.0 / 3.0 * (control.y - end.y);
 
-          path.addCommand(
+          path.add(
             PathCommand(PathCommandType.cubicCurveTo, [
-              Point(cp1x * scale, cp1y * scale),
-              Point(cp2x * scale, cp2y * scale),
-              Point(endPoint.x * scale, endPoint.y * scale),
+              Point(cp1x, cp1y),
+              Point(cp2x, cp2y),
+              end,
             ]),
           );
         }
       }
 
-      path.addCommand(PathCommand(PathCommandType.close, []));
+      path.add(PathCommand(PathCommandType.close, []));
     }
 
     return path;
@@ -339,7 +541,7 @@ class TTFFont extends Font {
 
   /// Calculate the signed area of a contour using the shoelace formula
   /// Positive area = clockwise, negative area = counter-clockwise
-  double _calculateContourArea(List<TtfGlyphPoint> points) {
+  double _area(List<TtfGlyphPoint> points) {
     if (points.length < 3) return 0.0;
 
     double area = 0.0;
@@ -351,224 +553,223 @@ class TTFFont extends Font {
   }
 
   @override
-  double getKerning(int leftGlyphIndex, int rightGlyphIndex, double fontSize) {
-    if (_kernTable == null) return 0.0;
+  double kerning(final int left, final int right, final double size) {
+    if (_kern == null) return 0.0;
 
-    final kerningValue = _kernTable!.getKerning(
-      leftGlyphIndex,
-      rightGlyphIndex,
-    );
-    return (kerningValue * fontSize) / unitsPerEm;
+    final value = _kern!.getKerning(left, right);
+    return (value * size) / unitsPerEm;
   }
 
   @override
-  TextMetrics measureText(String text, double fontSize) {
-    double totalWidth = 0.0;
-    final scale = fontSize / unitsPerEm;
-    final scaledMetrics = metrics.scale(fontSize, unitsPerEm);
+  TextMetrics measure(String text, final double size) {
+    double width = 0.0;
+    final scale = size / unitsPerEm;
+    final scaled = metrics.scale(size, unitsPerEm);
 
-    final codeUnits = text.runes.toList();
+    final points = text.runes.toList();
 
-    for (int i = 0; i < codeUnits.length; i++) {
-      final codePoint = codeUnits[i];
-      final glyphIndex = getGlyphIndex(codePoint);
-      final glyphMetrics = getGlyphMetrics(glyphIndex);
+    for (int i = 0; i < points.length; i++) {
+      final codePoint = points[i];
+      final index = glyph(codePoint);
+      final metric = dimensions(index);
 
-      totalWidth += glyphMetrics.advanceWidth * scale;
+      width += metric.advanceWidth * scale;
 
       // Add kerning if not the last character
-      if (i < codeUnits.length - 1) {
-        final nextCodePoint = codeUnits[i + 1];
-        final nextGlyphIndex = getGlyphIndex(nextCodePoint);
-        totalWidth += getKerning(glyphIndex, nextGlyphIndex, fontSize);
+      if (i < points.length - 1) {
+        final next = points[i + 1];
+        final neighbor = glyph(next);
+        width += kerning(index, neighbor, size);
       }
     }
 
     return TextMetrics(
-      width: totalWidth,
-      height: scaledMetrics.lineHeight.toDouble(),
-      ascent: scaledMetrics.ascender.toDouble(),
-      descent: -scaledMetrics.descender.toDouble(),
-      lineHeight: scaledMetrics.lineHeight.toDouble(),
+      width: width,
+      height: scaled.lineHeight.toDouble(),
+      ascent: scaled.ascender.toDouble(),
+      descent: -scaled.descender.toDouble(),
+      lineHeight: scaled.lineHeight.toDouble(),
     );
   }
 
   @override
-  Path getTextPath(String text, double x, double y, double fontSize) {
+  Path path(String text, double x, double y, final double size) {
     final path = Path();
-    double currentX = x;
-    final codeUnits = text.runes.toList();
+    double cursor = x;
+    final points = text.runes.toList();
 
-    for (int i = 0; i < codeUnits.length; i++) {
-      final codePoint = codeUnits[i];
-      final glyphIndex = getGlyphIndex(codePoint);
-      final glyphPath = getGlyphPath(glyphIndex, fontSize);
+    for (int i = 0; i < points.length; i++) {
+      final codePoint = points[i];
+      final index = glyph(codePoint);
+      final shape = outline(index, size);
 
       // Transform glyph path to current position
-      if (glyphPath.commands.isNotEmpty) {
-        final transform = Matrix2D.translation(currentX, y);
-        final transformedPath = glyphPath.transform(transform);
+      if (shape.commands.isNotEmpty) {
+        final transform = Matrix2D.translation(cursor, y);
+        final transformed = shape.transform(transform);
 
         // Add transformed glyph to text path
-        for (final command in transformedPath.commands) {
-          path.addCommand(command);
+        for (final command in transformed.commands) {
+          path.add(command);
         }
       }
 
       // Advance position
-      final glyphMetrics = getGlyphMetrics(glyphIndex);
-      final scale = fontSize / unitsPerEm;
-      currentX += glyphMetrics.advanceWidth * scale;
+      final metric = dimensions(index);
+      final scale = size / unitsPerEm;
+      cursor += metric.advanceWidth * scale;
 
       // Add kerning
-      if (i < codeUnits.length - 1) {
-        final nextCodePoint = codeUnits[i + 1];
-        final nextGlyphIndex = getGlyphIndex(nextCodePoint);
-        currentX += getKerning(glyphIndex, nextGlyphIndex, fontSize);
+      if (i < points.length - 1) {
+        final next = points[i + 1];
+        final neighbor = glyph(next);
+        cursor += kerning(index, neighbor, size);
       }
     }
 
     return path;
   }
 
-  /// Get path for a composite glyph
-  Path _getCompositeGlyphPath(int glyphIndex, double fontSize) {
-    if (_locaTable == null || !_parser.hasTable('glyf')) return Path();
+  /// Get path for a composite glyph, in font units
+  Path _composite(final int glyph) {
+    final data = _record(glyph);
+    if (data == null) return Path();
 
-    final glyphOffset = _locaTable!.getGlyphOffset(glyphIndex);
-    final glyphLength = _locaTable!.getGlyphLength(glyphIndex);
-
-    if (glyphLength == 0) return Path();
-
-    final table = _parser.getTable('glyf')!;
-    final offset = table.offset + glyphOffset;
-
-    // Skip bounding box
-    var currentOffset = offset + 10;
-
-    final scale = fontSize / unitsPerEm;
     final path = Path();
-
-    // Parse composite glyph components
-    var moreComponents = true;
-
-    while (moreComponents) {
-      final flags = _parser.readUint16(currentOffset);
-      final componentGlyphIndex = _parser.readUint16(currentOffset + 2);
-      currentOffset += 4;
-
-      // Get component glyph path
-      final componentPath = getGlyphPath(componentGlyphIndex, fontSize);
-
-      // Parse transformation
-      const ARG_1_AND_2_ARE_WORDS = 0x0001;
-      const ARGS_ARE_XY_VALUES = 0x0002;
-      const WE_HAVE_A_SCALE = 0x0008;
-      const MORE_COMPONENTS = 0x0020;
-      const WE_HAVE_AN_X_AND_Y_SCALE = 0x0040;
-      const WE_HAVE_A_TWO_BY_TWO = 0x0080;
-
-      double dx = 0, dy = 0;
-      double scaleX = 1, scaleY = 1;
-
-      // Read arguments
-      if (flags & ARG_1_AND_2_ARE_WORDS != 0) {
-        if (flags & ARGS_ARE_XY_VALUES != 0) {
-          dx = _parser.readInt16(currentOffset).toDouble();
-          dy = _parser.readInt16(currentOffset + 2).toDouble();
-        }
-        currentOffset += 4;
-      } else {
-        if (flags & ARGS_ARE_XY_VALUES != 0) {
-          dx = _parser.readInt8(currentOffset).toDouble();
-          dy = _parser.readInt8(currentOffset + 1).toDouble();
-        }
-        currentOffset += 2;
+    final points = <Point>[];
+    for (final component in _components(data)) {
+      final transform = component.transform;
+      final child = _points(component.glyph).map(transform.transform).toList();
+      final offset = _offset(component, points, child);
+      final placed = _outline(component.glyph).transform(
+        Matrix2D(
+          transform.a,
+          transform.b,
+          transform.c,
+          transform.d,
+          offset.x,
+          offset.y,
+        ),
+      );
+      for (final command in placed.commands) {
+        path.add(command);
       }
-
-      // Read scale if present
-      if (flags & WE_HAVE_A_SCALE != 0) {
-        scaleX = scaleY = _parser.readInt16(currentOffset) / 16384.0;
-        currentOffset += 2;
-      } else if (flags & WE_HAVE_AN_X_AND_Y_SCALE != 0) {
-        scaleX = _parser.readInt16(currentOffset) / 16384.0;
-        scaleY = _parser.readInt16(currentOffset + 2) / 16384.0;
-        currentOffset += 4;
-      } else if (flags & WE_HAVE_A_TWO_BY_TWO != 0) {
-        // Skip 2x2 transform for now (complex)
-        currentOffset += 8;
-      }
-
-      // Apply transformation and merge component path
-      dx *= scale;
-      dy *= scale;
-
-      for (final command in componentPath.commands) {
-        if (command.type == PathCommandType.moveTo &&
-            command.points.isNotEmpty) {
-          path.addCommand(
-            PathCommand(PathCommandType.moveTo, [
-              Point(
-                command.points[0].x * scaleX + dx,
-                command.points[0].y * scaleY + dy,
-              ),
-            ]),
-          );
-        } else if (command.type == PathCommandType.lineTo &&
-            command.points.isNotEmpty) {
-          path.addCommand(
-            PathCommand(PathCommandType.lineTo, [
-              Point(
-                command.points[0].x * scaleX + dx,
-                command.points[0].y * scaleY + dy,
-              ),
-            ]),
-          );
-        } else if (command.type == PathCommandType.cubicCurveTo &&
-            command.points.length >= 3) {
-          path.addCommand(
-            PathCommand(PathCommandType.cubicCurveTo, [
-              Point(
-                command.points[0].x * scaleX + dx,
-                command.points[0].y * scaleY + dy,
-              ),
-              Point(
-                command.points[1].x * scaleX + dx,
-                command.points[1].y * scaleY + dy,
-              ),
-              Point(
-                command.points[2].x * scaleX + dx,
-                command.points[2].y * scaleY + dy,
-              ),
-            ]),
-          );
-        } else if (command.type == PathCommandType.close) {
-          path.addCommand(PathCommand(PathCommandType.close, []));
-        }
-      }
-
-      moreComponents = (flags & MORE_COMPONENTS) != 0;
+      points.addAll(child.map((point) => point + offset));
     }
-
     return path;
   }
 
-  TtfGlyphData? _readGlyphData(int glyphIndex) {
-    if (_locaTable == null || !_parser.hasTable('glyf')) return null;
+  /// The points of [glyph] in font units, numbered as point matching
+  /// numbers them: a simple glyph's points in order, then each component's
+  /// points as placed
+  List<Point> _points(final int glyph) {
+    final data = _record(glyph);
+    if (data == null) return const [];
+    if (data.getInt16(0) >= 0) {
+      return [
+        for (final contour in _read(glyph)!.contours)
+          for (final point in contour.points)
+            Point(point.x.toDouble(), point.y.toDouble()),
+      ];
+    }
+    final points = <Point>[];
+    for (final component in _components(data)) {
+      final child = _points(
+        component.glyph,
+      ).map(component.transform.transform).toList();
+      final offset = _offset(component, points, child);
+      points.addAll(child.map((point) => point + offset));
+    }
+    return points;
+  }
 
-    final glyphOffset = _locaTable!.getGlyphOffset(glyphIndex);
-    final glyphLength = _locaTable!.getGlyphLength(glyphIndex);
+  /// Where [component] goes: its own offset or, when matched, the offset
+  /// that puts point `second` of its transformed points [child] on point
+  /// `first` of the composite's [points] so far
+  static Point _offset(
+    final _Component component,
+    final List<Point> points,
+    final List<Point> child,
+  ) {
+    if (component.matched) {
+      return points[component.first] - child[component.second];
+    }
+    final offset = Point(
+      component.first.toDouble(),
+      component.second.toDouble(),
+    );
+    // SCALED_COMPONENT_OFFSET without UNSCALED_COMPONENT_OFFSET
+    final scaled =
+        component.flags & 0x0800 != 0 && component.flags & 0x1000 == 0;
+    return scaled ? component.transform.transform(offset) : offset;
+  }
 
-    if (glyphLength == 0) return null; // Empty glyph
+  /// The components of the composite glyph record [data]. Throws
+  /// [RangeError] for a record that ends early.
+  static List<_Component> _components(final ByteData data) {
+    final components = <_Component>[];
+    var position = 10;
+    var more = true;
+    while (more) {
+      final flags = data.getUint16(position);
+      final glyph = data.getUint16(position + 2);
+      position += 4;
 
-    final table = _parser.getTable('glyf')!;
-    final offset = table.offset + glyphOffset;
+      // Offsets are signed, matched point numbers unsigned
+      final matched = flags & 0x0002 == 0;
+      final int first;
+      final int second;
+      if (flags & 0x0001 != 0) {
+        first = matched ? data.getUint16(position) : data.getInt16(position);
+        second = matched
+            ? data.getUint16(position + 2)
+            : data.getInt16(position + 2);
+        position += 4;
+      } else {
+        first = matched ? data.getUint8(position) : data.getInt8(position);
+        second = matched
+            ? data.getUint8(position + 1)
+            : data.getInt8(position + 1);
+        position += 2;
+      }
 
-    final numberOfContours = _parser.readInt16(offset);
-    final xMin = _parser.readInt16(offset + 2);
-    final yMin = _parser.readInt16(offset + 4);
-    final xMax = _parser.readInt16(offset + 6);
-    final yMax = _parser.readInt16(offset + 8);
+      // F2Dot14 scale, x and y scales, or 2x2 transform
+      double fixed() {
+        final value = data.getInt16(position) / 16384;
+        position += 2;
+        return value;
+      }
+
+      var a = 1.0, b = 0.0, c = 0.0, d = 1.0;
+      if (flags & 0x0008 != 0) {
+        a = d = fixed();
+      } else if (flags & 0x0040 != 0) {
+        a = fixed();
+        d = fixed();
+      } else if (flags & 0x0080 != 0) {
+        a = fixed();
+        b = fixed();
+        c = fixed();
+        d = fixed();
+      }
+
+      components.add(
+        _Component(glyph, flags, first, second, Matrix2D(a, b, c, d, 0, 0)),
+      );
+      more = flags & 0x0020 != 0;
+    }
+    return components;
+  }
+
+  TtfGlyphData? _read(final int glyph) {
+    final data = _record(glyph);
+    if (data == null) return null; // Empty glyph
+
+    final numberOfContours = data.getInt16(0);
+    final xMin = data.getInt16(2);
+    final yMin = data.getInt16(4);
+    final xMax = data.getInt16(6);
+    final yMax = data.getInt16(8);
 
     if (numberOfContours < 0) {
       // Composite glyph - not implemented yet
@@ -584,44 +785,42 @@ class TTFFont extends Font {
     }
 
     // Simple glyph
-    var currentOffset = offset + 10;
+    var position = 10;
 
     // Read contour end points
     final endPtsOfContours = <int>[];
     for (int i = 0; i < numberOfContours; i++) {
-      endPtsOfContours.add(_parser.readUint16(currentOffset));
-      currentOffset += 2;
+      endPtsOfContours.add(data.getUint16(position));
+      position += 2;
     }
 
     // Read instruction length and instructions
-    final instructionLength = _parser.readUint16(currentOffset);
-    currentOffset += 2;
+    final instructionLength = data.getUint16(position);
+    position += 2;
 
     final instructions = <int>[];
     for (int i = 0; i < instructionLength; i++) {
-      instructions.add(_parser.readUint8(currentOffset));
-      currentOffset += 1;
+      instructions.add(data.getUint8(position));
+      position += 1;
     }
 
     // Read coordinates
-    final numPoints = endPtsOfContours.isNotEmpty
-        ? endPtsOfContours.last + 1
-        : 0;
+    final count = endPtsOfContours.isNotEmpty ? endPtsOfContours.last + 1 : 0;
     final points = <TtfGlyphPoint>[];
 
-    if (numPoints > 0) {
+    if (count > 0) {
       // Read flags
       final flags = <int>[];
-      for (int i = 0; i < numPoints; i++) {
-        final flag = _parser.readUint8(currentOffset);
+      for (int i = 0; i < count; i++) {
+        final flag = data.getUint8(position);
         flags.add(flag);
-        currentOffset += 1;
+        position += 1;
 
         // Handle repeat flag
         if ((flag & 0x08) != 0) {
-          final repeatCount = _parser.readUint8(currentOffset);
-          currentOffset += 1;
-          for (int r = 0; r < repeatCount; r++) {
+          final repeats = data.getUint8(position);
+          position += 1;
+          for (int r = 0; r < repeats; r++) {
             flags.add(flag);
             i++;
           }
@@ -630,50 +829,50 @@ class TTFFont extends Font {
 
       // Read x coordinates
       final xCoordinates = <int>[];
-      int currentX = 0;
-      for (int i = 0; i < numPoints; i++) {
+      int x = 0;
+      for (int i = 0; i < count; i++) {
         final flag = flags[i];
 
         if ((flag & 0x02) != 0) {
           // x-coordinate is a uint8
-          final delta = _parser.readUint8(currentOffset);
-          currentOffset += 1;
-          currentX += (flag & 0x10) != 0 ? delta : -delta;
+          final delta = data.getUint8(position);
+          position += 1;
+          x += (flag & 0x10) != 0 ? delta : -delta;
         } else if ((flag & 0x10) == 0) {
           // x-coordinate is a int16
-          final delta = _parser.readInt16(currentOffset);
-          currentOffset += 2;
-          currentX += delta;
+          final delta = data.getInt16(position);
+          position += 2;
+          x += delta;
         }
         // else x-coordinate is the same as previous
 
-        xCoordinates.add(currentX);
+        xCoordinates.add(x);
       }
 
       // Read y coordinates
       final yCoordinates = <int>[];
-      int currentY = 0;
-      for (int i = 0; i < numPoints; i++) {
+      int y = 0;
+      for (int i = 0; i < count; i++) {
         final flag = flags[i];
 
         if ((flag & 0x04) != 0) {
           // y-coordinate is a uint8
-          final delta = _parser.readUint8(currentOffset);
-          currentOffset += 1;
-          currentY += (flag & 0x20) != 0 ? delta : -delta;
+          final delta = data.getUint8(position);
+          position += 1;
+          y += (flag & 0x20) != 0 ? delta : -delta;
         } else if ((flag & 0x20) == 0) {
           // y-coordinate is a int16
-          final delta = _parser.readInt16(currentOffset);
-          currentOffset += 2;
-          currentY += delta;
+          final delta = data.getInt16(position);
+          position += 2;
+          y += delta;
         }
         // else y-coordinate is the same as previous
 
-        yCoordinates.add(currentY);
+        yCoordinates.add(y);
       }
 
       // Create points
-      for (int i = 0; i < numPoints; i++) {
+      for (int i = 0; i < count; i++) {
         points.add(
           TtfGlyphPoint(
             x: xCoordinates[i],
@@ -686,12 +885,12 @@ class TTFFont extends Font {
 
     // Group points into contours
     final contours = <TtfGlyphContour>[];
-    int startIndex = 0;
+    int start = 0;
 
-    for (final endIndex in endPtsOfContours) {
-      final contourPoints = points.sublist(startIndex, endIndex + 1);
-      contours.add(TtfGlyphContour(points: contourPoints));
-      startIndex = endIndex + 1;
+    for (final end in endPtsOfContours) {
+      final segment = points.sublist(start, end + 1);
+      contours.add(TtfGlyphContour(points: segment));
+      start = end + 1;
     }
 
     return TtfGlyphData(
@@ -704,4 +903,19 @@ class TTFFont extends Font {
       instructions: instructions,
     );
   }
+}
+
+/// One component of a composite glyph: [glyph] placed by the offset
+/// ([first], [second]) or, when [matched], by putting its point [second] on
+/// the composite's point [first], after [transform]
+class _Component {
+  final int glyph;
+  final int flags;
+  final int first;
+  final int second;
+  final Matrix2D transform;
+
+  _Component(this.glyph, this.flags, this.first, this.second, this.transform);
+
+  bool get matched => flags & 0x0002 == 0;
 }

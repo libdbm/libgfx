@@ -2,11 +2,13 @@ import 'dart:math' as math;
 
 import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
-import 'package:libgfx/src/color/color_utils.dart';
 
 Future<void> main() async {
   const filesystem = LocalGraphicsFileSystem();
-  final engine = GraphicsEngine(800, 800, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+  // page units
+  final engine = GraphicsEngine(2 * 800, 2 * 800, filesystem: filesystem)
+    ..scale(2, 2);
 
   // Dark background
   engine.clear(const Color(0xFF0a0a0a));
@@ -17,7 +19,7 @@ Future<void> main() async {
   // Draw a pattern demonstrating nested save/restore operations
   drawNestedPattern(engine);
 
-  await engine.saveToFile('output/nested_transforms_demo.ppm');
+  await engine.write('output/nested_transforms_demo.ppm');
   print('Saved output/nested_transforms_demo.ppm');
 }
 
@@ -55,14 +57,12 @@ void drawBranch(
   // Calculate color based on level
   final brightness = 1.0 - (currentLevel / maxLevel) * 0.7;
   final hue = 180 + currentLevel * 30;
-  final color = ColorUtils.hslToRgb(
-    HSLColor(hue.toDouble(), 0.6, brightness * 0.5),
-  );
+  final color = HSLColor(hue.toDouble(), 0.6, brightness * 0.5).color;
 
   // Set style for this branch
-  engine.setStrokeColor(color);
-  engine.setLineWidth(width);
-  engine.setLineCap(LineCap.round);
+  engine.strokeStyle = color;
+  engine.lineWidth = width;
+  engine.lineCap = LineCap.round;
 
   // Draw the main branch line
   final branch = PathBuilder()
@@ -77,7 +77,7 @@ void drawBranch(
   // Draw decorative element at branch point
   if (currentLevel < maxLevel - 1) {
     engine.save();
-    engine.setFillColor(ColorUtils.adjustBrightness(color, 0.3));
+    engine.fillStyle = ColorUtils.brighten(color, 0.3);
     drawDiamond(engine, width * 0.8);
     engine.restore();
   }
@@ -108,7 +108,7 @@ void drawDiamond(GraphicsEngine engine, double size) {
     ..lineTo(size, 0)
     ..lineTo(0, size)
     ..lineTo(-size, 0)
-    ..close();
+    ..closePath();
 
   engine.fill(diamond.build());
 }
@@ -127,12 +127,12 @@ void drawCentralDecoration(GraphicsEngine engine) {
 
     // Alternate between different shapes and styles
     if (i % 2 == 0) {
-      engine.setStrokeColor(Color(0xFF404040 | (i * 0x202020)));
-      engine.setLineWidth(2);
+      engine.strokeStyle = Color(0xFF404040 | (i * 0x202020));
+      engine.lineWidth = 2;
       engine.setLineDash([5, 3]);
       drawPolygon(engine, 6, 40);
     } else {
-      engine.setFillColor(Color(0x40808080 | (i * 0x101010)));
+      engine.fillStyle = Color(0x40808080 | (i * 0x101010));
       drawPolygon(engine, 8, 35, filled: true);
     }
 
@@ -141,7 +141,7 @@ void drawCentralDecoration(GraphicsEngine engine) {
 
   // Draw central star
   engine.save();
-  engine.setFillColor(const Color(0xFFFFD700));
+  engine.fillStyle = const Color(0xFFFFD700);
   drawStar(engine, 20, 10, 5);
   engine.restore();
 

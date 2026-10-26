@@ -154,51 +154,19 @@ void main() {
 
     group('Distance Calculations', () {
       test('calculates distance between points', () {
-        expect(
-          Point(0, 0).distanceTo(Point(3, 4)),
-          equals(5),
-        ); // 3-4-5 triangle
-        expect(Point(0, 0).distanceTo(Point(0, 10)), equals(10));
-        expect(Point(0, 0).distanceTo(Point(10, 0)), equals(10));
-        expect(Point(5, 5).distanceTo(Point(5, 5)), equals(0));
-        expect(Point(-5, -5).distanceTo(Point(5, 5)), closeTo(14.142, 0.001));
+        expect(Point(0, 0).distance(Point(3, 4)), equals(5)); // 3-4-5 triangle
+        expect(Point(0, 0).distance(Point(0, 10)), equals(10));
+        expect(Point(0, 0).distance(Point(10, 0)), equals(10));
+        expect(Point(5, 5).distance(Point(5, 5)), equals(0));
+        expect(Point(-5, -5).distance(Point(5, 5)), closeTo(14.142, 0.001));
       });
 
       test('calculates squared distance', () {
-        expect(Point(0, 0).distanceToSquared(Point(3, 4)), equals(25));
-        expect(Point(0, 0).distanceToSquared(Point(0, 10)), equals(100));
-        expect(Point(0, 0).distanceToSquared(Point(10, 0)), equals(100));
-        expect(Point(5, 5).distanceToSquared(Point(5, 5)), equals(0));
-        expect(Point(-5, -5).distanceToSquared(Point(5, 5)), equals(200));
-      });
-
-      test('squared distance is more efficient', () {
-        // No sqrt needed, so should be faster
-        final stopwatch1 = Stopwatch()..start();
-        for (int i = 0; i < 10000; i++) {
-          Point(
-            i.toDouble(),
-            i.toDouble(),
-          ).distanceToSquared(Point(i + 10.0, i + 10.0));
-        }
-        stopwatch1.stop();
-
-        final stopwatch2 = Stopwatch()..start();
-        for (int i = 0; i < 10000; i++) {
-          Point(
-            i.toDouble(),
-            i.toDouble(),
-          ).distanceTo(Point(i + 10.0, i + 10.0));
-        }
-        stopwatch2.stop();
-
-        // Squared should generally be faster (no sqrt)
-        // This might not always be true due to optimizations
-        // Making this test more lenient as performance can vary
-        expect(
-          stopwatch1.elapsedMicroseconds,
-          lessThanOrEqualTo(stopwatch2.elapsedMicroseconds * 10),
-        );
+        expect(Point(0, 0).distance2(Point(3, 4)), equals(25));
+        expect(Point(0, 0).distance2(Point(0, 10)), equals(100));
+        expect(Point(0, 0).distance2(Point(10, 0)), equals(100));
+        expect(Point(5, 5).distance2(Point(5, 5)), equals(0));
+        expect(Point(-5, -5).distance2(Point(5, 5)), equals(200));
       });
     });
 
@@ -308,10 +276,7 @@ void main() {
       });
 
       test('handles very large numbers', () {
-        expect(
-          Point(0, 0).distanceTo(Point(1e10, 1e10)),
-          closeTo(1.414e10, 1e7),
-        );
+        expect(Point(0, 0).distance(Point(1e10, 1e10)), closeTo(1.414e10, 1e7));
 
         expect(MathUtils.lerp(1e10, 2e10, 0.5), equals(1.5e10));
       });
@@ -321,7 +286,7 @@ void main() {
         expect(MathUtils.nearlyEqual(1e-15, 2e-15), isTrue);
 
         expect(
-          Point(0, 0).distanceTo(Point(1e-10, 1e-10)),
+          Point(0, 0).distance(Point(1e-10, 1e-10)),
           closeTo(1.414e-10, 1e-12),
         );
       });

@@ -3,26 +3,33 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../bitmap.dart';
+import 'inflate.dart';
 import '../../color/color.dart';
-import '../../errors.dart';
 import '../image_codec.dart';
+import '../../result.dart';
+import '../../limits.dart';
 
 /// PNG image codec for encoding and decoding PNG files
 class PngImageCodec extends ImageCodec {
-  static const List<int> _pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
+  static const List<int> _signature = [137, 80, 78, 71, 13, 10, 26, 10];
 
   @override
   bool canDecode(Uint8List bytes) {
     if (bytes.length < 8) return false;
     for (int i = 0; i < 8; i++) {
-      if (bytes[i] != _pngSignature[i]) return false;
+      if (bytes[i] != _signature[i]) return false;
     }
     return true;
   }
 
   @override
-  Bitmap decode(Uint8List bytes) {
-    final decoder = _PngDecoder(bytes);
+  Result<Bitmap, ErrorDetails> decode(
+    Uint8List bytes, {
+    Limits limits = const Limits(),
+  }) => ImageCodec.guard(() => _decode(bytes, limits));
+
+  Bitmap _decode(Uint8List bytes, Limits limits) {
+    final decoder = _PngDecoder(bytes, limits);
     return decoder.decode();
   }
 
@@ -42,7 +49,7 @@ class _PngEncoder {
 
   Uint8List encode() {
     // Write PNG signature
-    output.add(PngImageCodec._pngSignature);
+    output.add(PngImageCodec._signature);
 
     // Write IHDR chunk
     _writeIHDR();
@@ -60,8 +67,8 @@ class _PngEncoder {
     final data = BytesBuilder();
 
     // Width and height (4 bytes each)
-    data.add(_int32Bytes(image.width));
-    data.add(_int32Bytes(image.height));
+    data.add(_int32(image.width));
+    data.add(_int32(image.height));
 
     // Bit depth (1 byte) - 8 bits per channel
     data.addByte(8);
@@ -83,23 +90,23 @@ class _PngEncoder {
 
   void _writeIDAT() {
     // Build raw image data with filter bytes
-    final rawData = BytesBuilder();
+    final raw = BytesBuilder();
 
     for (int y = 0; y < image.height; y++) {
       // Filter type 0 (None) for simplicity
-      rawData.addByte(0);
+      raw.addByte(0);
 
       for (int x = 0; x < image.width; x++) {
-        final color = image.getPixel(x, y);
-        rawData.addByte(color.red);
-        rawData.addByte(color.green);
-        rawData.addByte(color.blue);
-        rawData.addByte(color.alpha);
+        final color = image.pixel(x, y);
+        raw.addByte(color.red);
+        raw.addByte(color.green);
+        raw.addByte(color.blue);
+        raw.addByte(color.alpha);
       }
     }
 
     // Compress using zlib deflate
-    final compressed = _zlibCompress(rawData.takeBytes());
+    final compressed = _compress(raw.takeBytes());
     _writeChunk('IDAT', compressed);
   }
 
@@ -109,7 +116,7 @@ class _PngEncoder {
 
   void _writeChunk(String type, Uint8List data) {
     // Length (4 bytes)
-    output.add(_int32Bytes(data.length));
+    output.add(_int32(data.length));
 
     // Type (4 bytes)
     output.add(utf8.encode(type));
@@ -118,13 +125,13 @@ class _PngEncoder {
     output.add(data);
 
     // CRC32 (4 bytes)
-    final crcData = BytesBuilder();
-    crcData.add(utf8.encode(type));
-    crcData.add(data);
-    output.add(_int32Bytes(_crc32(crcData.takeBytes())));
+    final covered = BytesBuilder();
+    covered.add(utf8.encode(type));
+    covered.add(data);
+    output.add(_int32(_crc32(covered.takeBytes())));
   }
 
-  Uint8List _int32Bytes(int value) {
+  Uint8List _int32(int value) {
     return Uint8List.fromList([
       (value >> 24) & 0xFF,
       (value >> 16) & 0xFF,
@@ -134,7 +141,7 @@ class _PngEncoder {
   }
 
   // Simple zlib compression (deflate with zlib header)
-  Uint8List _zlibCompress(Uint8List data) {
+  Uint8List _compress(Uint8List data) {
     // For simplicity, we'll use uncompressed deflate blocks
     // In production, you'd want to use a proper deflate implementation
 
@@ -145,37 +152,37 @@ class _PngEncoder {
     output.addByte(0x01); // FLG (no compression)
 
     // Process data in chunks (max 65535 bytes per block)
-    const maxBlockSize = 65535;
+    const maximum = 65535;
     int offset = 0;
 
     while (offset < data.length) {
       final remaining = data.length - offset;
-      final blockSize = math.min(remaining, maxBlockSize);
-      final isLast = offset + blockSize >= data.length;
+      final size = math.min(remaining, maximum);
+      final last = offset + size >= data.length;
 
       // Block header
-      output.addByte(isLast ? 1 : 0); // BFINAL and BTYPE (00 = no compression)
+      output.addByte(last ? 1 : 0); // BFINAL and BTYPE (00 = no compression)
 
       // Length and complement
-      output.addByte(blockSize & 0xFF);
-      output.addByte((blockSize >> 8) & 0xFF);
-      output.addByte((~blockSize) & 0xFF);
-      output.addByte(((~blockSize) >> 8) & 0xFF);
+      output.addByte(size & 0xFF);
+      output.addByte((size >> 8) & 0xFF);
+      output.addByte((~size) & 0xFF);
+      output.addByte(((~size) >> 8) & 0xFF);
 
       // Raw data
-      output.add(data.sublist(offset, offset + blockSize));
+      output.add(data.sublist(offset, offset + size));
 
-      offset += blockSize;
+      offset += size;
     }
 
     // Adler32 checksum
-    output.add(_int32Bytes(_adler32(data)));
+    output.add(_int32(_adler32(data)));
 
     return output.takeBytes();
   }
 
   // CRC32 implementation for PNG chunks
-  int _crc32(Uint8List data) {
+  static int _crc32(Uint8List data) {
     const table = _crc32Table;
     int crc = 0xFFFFFFFF;
 
@@ -469,159 +476,400 @@ class _PngDecoder {
   int? height;
   int? bitDepth;
   int? colorType;
-  Uint8List? imageData;
+  int? interlace;
+  final Limits limits;
 
-  _PngDecoder(this.data);
+  /// PLTE entries, three bytes each.
+  Uint8List? palette;
+
+  /// tRNS: alphas of the first palette entries, or the transparent colour of
+  /// a greyscale or RGB image as 16-bit samples.
+  Uint8List? transparency;
+
+  _PngDecoder(this.data, this.limits);
 
   Bitmap decode() {
     // Verify PNG signature
-    if (!_checkSignature()) {
+    if (!_verify()) {
       throw FormatException('Invalid PNG signature');
     }
 
     offset = 8; // Skip signature
 
     // Read chunks
+    final compressed = BytesBuilder(copy: false);
+    var ended = false;
+    var started = false; // an IDAT has been read
     while (offset < data.length) {
-      final chunk = _readChunk();
-      if (chunk.type == 'IEND') break;
+      final chunk = _chunk();
+      if (width == null && chunk.type != 'IHDR') {
+        throw FormatException('PNG must start with IHDR, found ${chunk.type}');
+      }
+      if (chunk.type == 'IEND') {
+        ended = true;
+        break;
+      }
 
       switch (chunk.type) {
         case 'IHDR':
+          if (width != null) {
+            throw FormatException('PNG has more than one IHDR chunk');
+          }
           _parseIHDR(chunk.data);
           break;
+        case 'PLTE':
+          _parsePalette(chunk.data, started);
+          break;
+        case 'tRNS':
+          _parseTransparency(chunk.data, started);
+          break;
         case 'IDAT':
-          // Accumulate image data
-          imageData = imageData == null
-              ? chunk.data
-              : Uint8List.fromList([...imageData!, ...chunk.data]);
+          started = true;
+          compressed.add(chunk.data);
           break;
       }
     }
 
-    if (width == null || height == null || imageData == null) {
-      throw FormatException('Invalid PNG file: missing required chunks');
+    if (!ended) {
+      throw RangeError('PNG ends before its IEND chunk');
+    }
+    if (compressed.isEmpty) {
+      throw FormatException('PNG has no IDAT chunk');
+    }
+    if (colorType == 3 && palette == null) {
+      throw FormatException('Palette PNG has no PLTE chunk');
     }
 
-    // Decompress image data
-    final decompressed = _zlibDecompress(imageData!);
+    // Decompress image data; anything beyond the scanlines is over the limit
+    var expected = 0;
+    for (final (_, _, _, _, columns, rows) in _layout) {
+      expected += rows * (1 + _stride(columns));
+    }
+    final decompressed = inflate(compressed.takeBytes(), limit: expected);
+    if (decompressed.length < expected) {
+      throw FormatException(
+        'PNG image data is ${decompressed.length} bytes, expected $expected',
+      );
+    }
 
     // Create bitmap and fill with decompressed data
     final bitmap = Bitmap(width!, height!);
-    _fillBitmap(bitmap, decompressed);
+    _fill(bitmap, decompressed);
 
     return bitmap;
   }
 
-  bool _checkSignature() {
+  bool _verify() {
     if (data.length < 8) return false;
     for (int i = 0; i < 8; i++) {
-      if (data[i] != PngImageCodec._pngSignature[i]) return false;
+      if (data[i] != PngImageCodec._signature[i]) return false;
     }
     return true;
   }
 
-  _Chunk _readChunk() {
+  _Chunk _chunk() {
+    final start = offset + 4;
+
     // Read length (4 bytes)
-    final length = _readInt32();
+    final length = _read();
+    if (length > 0x7FFFFFFF) {
+      throw FormatException('PNG chunk length $length exceeds 2^31-1');
+    }
 
     // Read type (4 bytes)
-    final typeBytes = data.sublist(offset, offset + 4);
+    final raw = data.sublist(offset, offset + 4);
     offset += 4;
-    final type = utf8.decode(typeBytes);
+    final type = utf8.decode(raw);
+
+    // Data and CRC must fit in what remains
+    if (data.length - offset < length + 4) {
+      throw RangeError('PNG $type chunk ends early');
+    }
 
     // Read data
-    final chunkData = data.sublist(offset, offset + length);
+    final body = Uint8List.sublistView(data, offset, offset + length);
     offset += length;
 
-    // Skip CRC (4 bytes)
-    offset += 4;
+    // CRC covers the type and data
+    final crc = _read();
+    if (crc !=
+        _PngEncoder._crc32(Uint8List.sublistView(data, start, offset - 4))) {
+      throw FormatException('PNG $type chunk has a bad CRC');
+    }
 
-    return _Chunk(type, chunkData);
+    return _Chunk(type, body);
   }
+
+  /// Legal bit depths for each colour type.
+  static const _depths = {
+    0: [1, 2, 4, 8, 16],
+    2: [8, 16],
+    3: [1, 2, 4, 8],
+    4: [8, 16],
+    6: [8, 16],
+  };
+
+  /// Samples per pixel of each colour type.
+  static const _channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4};
 
   void _parseIHDR(Uint8List ihdr) {
-    width = _bytesToInt32(ihdr, 0);
-    height = _bytesToInt32(ihdr, 4);
+    if (ihdr.length != 13) {
+      throw FormatException('PNG IHDR is ${ihdr.length} bytes, expected 13');
+    }
+    width = _int32(ihdr, 0);
+    height = _int32(ihdr, 4);
+    if (width! == 0 ||
+        height! == 0 ||
+        width! > 0x7FFFFFFF ||
+        height! > 0x7FFFFFFF) {
+      throw FormatException('Invalid PNG dimensions ${width}x$height');
+    }
+    limits.require(width!, height!);
     bitDepth = ihdr[8];
     colorType = ihdr[9];
-    // Skip compression method, filter method, interlace method
+    final compression = ihdr[10];
+    final filter = ihdr[11];
+    interlace = ihdr[12];
+
+    final depths = _depths[colorType];
+    if (depths == null) {
+      throw FormatException('Invalid PNG colour type $colorType');
+    }
+    if (!depths.contains(bitDepth)) {
+      throw FormatException(
+        'Invalid PNG bit depth $bitDepth for colour type $colorType',
+      );
+    }
+    if (compression != 0) {
+      throw FormatException('Invalid PNG compression method $compression');
+    }
+    if (filter != 0) {
+      throw FormatException('Invalid PNG filter method $filter');
+    }
+    if (interlace! > 1) {
+      throw FormatException('Invalid PNG interlace method $interlace');
+    }
   }
 
-  int _readInt32() {
-    final value = _bytesToInt32(data, offset);
+  void _parsePalette(Uint8List chunk, bool started) {
+    if (palette != null) throw FormatException('PNG has more than one PLTE');
+    if (started) throw FormatException('PNG PLTE follows IDAT');
+    if (colorType == 0 || colorType == 4) {
+      throw FormatException('Greyscale PNG has a PLTE chunk');
+    }
+    if (chunk.isEmpty || chunk.length % 3 != 0 || chunk.length > 768) {
+      throw FormatException('Invalid PNG PLTE length ${chunk.length}');
+    }
+    palette = chunk;
+  }
+
+  void _parseTransparency(Uint8List chunk, bool started) {
+    if (transparency != null) {
+      throw FormatException('PNG has more than one tRNS');
+    }
+    if (started) throw FormatException('PNG tRNS follows IDAT');
+    final valid = switch (colorType) {
+      0 => chunk.length == 2,
+      2 => chunk.length == 6,
+      3 when palette == null => throw FormatException('PNG tRNS precedes PLTE'),
+      3 => chunk.length <= palette!.length ~/ 3,
+      _ => throw FormatException(
+        'PNG tRNS is not allowed with an alpha channel',
+      ),
+    };
+    if (!valid) {
+      throw FormatException('Invalid PNG tRNS length ${chunk.length}');
+    }
+    transparency = chunk;
+  }
+
+  /// Bytes in a scanline of [columns] pixels, excluding its filter type byte.
+  int _stride(int columns) =>
+      (columns * _channels[colorType]! * bitDepth! + 7) >> 3;
+
+  /// Adam7 passes: first column and row, then column and row spacing.
+  static const _passes = [
+    (0, 0, 8, 8),
+    (4, 0, 8, 8),
+    (0, 4, 4, 8),
+    (2, 0, 4, 4),
+    (0, 2, 2, 4),
+    (1, 0, 2, 2),
+    (0, 1, 1, 2),
+  ];
+
+  /// The passes of the image with their columns and rows; a non-interlaced
+  /// image is one pass. Empty passes have no data and are left out.
+  List<(int, int, int, int, int, int)> get _layout => [
+    for (final (left, top, across, down)
+        in interlace == 1 ? _passes : const [(0, 0, 1, 1)])
+      if (left < width! && top < height!)
+        (
+          left,
+          top,
+          across,
+          down,
+          (width! - left + across - 1) ~/ across,
+          (height! - top + down - 1) ~/ down,
+        ),
+  ];
+
+  int _read() {
+    final value = _int32(data, offset);
     offset += 4;
     return value;
   }
 
-  int _bytesToInt32(Uint8List bytes, int offset) {
+  int _int32(Uint8List bytes, int offset) {
     return (bytes[offset] << 24) |
         (bytes[offset + 1] << 16) |
         (bytes[offset + 2] << 8) |
         bytes[offset + 3];
   }
 
-  // Simple zlib decompression for uncompressed blocks
-  Uint8List _zlibDecompress(Uint8List compressed) {
-    // Skip zlib header (2 bytes)
-    int offset = 2;
-    final output = BytesBuilder();
-
-    while (offset < compressed.length - 4) {
-      // -4 for Adler32
-      // Read block header
-      final header = compressed[offset++];
-      final bfinal = header & 1;
-      final btype = (header >> 1) & 3;
-
-      if (btype == 0) {
-        // Uncompressed block
-        // Read length and complement
-        final len = compressed[offset] | (compressed[offset + 1] << 8);
-        offset += 4; // Skip length and complement
-
-        // Read raw data
-        output.add(compressed.sublist(offset, offset + len));
-        offset += len;
-
-        if (bfinal != 0) break;
-      } else {
-        // For compressed blocks, we'd need a full deflate implementation
-        // For now, throw an error
-        throw UnsupportedFormatException(
-          'PNG',
-          'Compressed PNG blocks not yet supported',
-        );
-      }
+  void _fill(Bitmap bitmap, Uint8List data) {
+    var offset = 0;
+    for (final (left, top, across, down, columns, rows) in _layout) {
+      _pass(bitmap, data, offset, columns, rows, left, top, across, down);
+      offset += rows * (1 + _stride(columns));
     }
-
-    return output.takeBytes();
   }
 
-  void _fillBitmap(Bitmap bitmap, Uint8List data) {
-    int dataOffset = 0;
+  /// Decodes the pass of [columns] by [rows] pixels at [offset] in [data],
+  /// placing pixel (x, y) of the pass at (left + x * across, top + y * down).
+  void _pass(
+    Bitmap bitmap,
+    Uint8List data,
+    int offset,
+    int columns,
+    int rows,
+    int left,
+    int top,
+    int across,
+    int down,
+  ) {
+    final channels = _channels[colorType]!;
+    final depth = bitDepth!;
+    final stride = _stride(columns);
+    _unfilter(data, offset, rows, stride, math.max(1, channels * depth >> 3));
 
-    for (int y = 0; y < height!; y++) {
-      // Skip filter byte
-      dataOffset++;
+    final maximum = (1 << depth) - 1;
+    final samples = List.filled(channels, 0);
+    final table = palette;
+    final alphas = transparency;
+    // The transparent colour of a greyscale or RGB image
+    final key = colorType == 0 || colorType == 2
+        ? alphas == null
+              ? null
+              : [
+                  for (var i = 0; i < alphas.length; i += 2)
+                    alphas[i] << 8 | alphas[i + 1],
+                ]
+        : null;
 
-      for (int x = 0; x < width!; x++) {
-        if (colorType == 6) {
-          // RGBA
-          final r = data[dataOffset++];
-          final g = data[dataOffset++];
-          final b = data[dataOffset++];
-          final a = data[dataOffset++];
-          bitmap.setPixel(x, y, Color.fromRGBA(r, g, b, a));
-        } else if (colorType == 2) {
-          // RGB
-          final r = data[dataOffset++];
-          final g = data[dataOffset++];
-          final b = data[dataOffset++];
-          bitmap.setPixel(x, y, Color.fromRGBA(r, g, b, 255));
+    // A sample scaled to 8 bits: exactly below 8 bits, the high byte of 16
+    int eight(int value) => depth == 16
+        ? value >> 8
+        : depth == 8
+        ? value
+        : value * 255 ~/ maximum;
+
+    for (var y = 0; y < rows; y++) {
+      final row = offset + y * (stride + 1) + 1;
+      for (var x = 0; x < columns; x++) {
+        for (var c = 0; c < channels; c++) {
+          final index = x * channels + c;
+          samples[c] = switch (depth) {
+            8 => data[row + index],
+            16 => data[row + index * 2] << 8 | data[row + index * 2 + 1],
+            _ =>
+              data[row + (index * depth >> 3)] >>
+                      (8 - depth - (index * depth & 7)) &
+                  maximum,
+          };
         }
+        final Color color;
+        switch (colorType) {
+          case 0:
+            final gray = eight(samples[0]);
+            final alpha = key != null && samples[0] == key[0] ? 0 : 255;
+            color = Color.fromRGBA(gray, gray, gray, alpha);
+          case 2:
+            final hidden =
+                key != null &&
+                samples[0] == key[0] &&
+                samples[1] == key[1] &&
+                samples[2] == key[2];
+            color = Color.fromRGBA(
+              eight(samples[0]),
+              eight(samples[1]),
+              eight(samples[2]),
+              hidden ? 0 : 255,
+            );
+          case 3:
+            final index = samples[0];
+            if (index * 3 >= table!.length) {
+              throw FormatException('PNG palette index $index is out of range');
+            }
+            color = Color.fromRGBA(
+              table[index * 3],
+              table[index * 3 + 1],
+              table[index * 3 + 2],
+              alphas != null && index < alphas.length ? alphas[index] : 255,
+            );
+          case 4:
+            final gray = eight(samples[0]);
+            color = Color.fromRGBA(gray, gray, gray, eight(samples[1]));
+          default:
+            color = Color.fromRGBA(
+              eight(samples[0]),
+              eight(samples[1]),
+              eight(samples[2]),
+              eight(samples[3]),
+            );
+        }
+        bitmap.plot(left + x * across, top + y * down, color);
       }
     }
+  }
+
+  /// Reverses the row filters of the [rows] rows at [offset] in [data], in
+  /// place. Each row is a filter type byte followed by [stride] bytes, with
+  /// [step] bytes per pixel; a filter predicts each byte from the bytes to
+  /// its left and above, which are already reversed.
+  void _unfilter(Uint8List data, int offset, int rows, int stride, int step) {
+    for (var y = 0; y < rows; y++) {
+      final start = offset + y * (stride + 1) + 1;
+      final filter = data[start - 1];
+      if (filter > 4) {
+        throw FormatException('Invalid PNG row filter type $filter');
+      }
+      final above = start - stride - 1;
+      for (var i = 0; i < stride; i++) {
+        final left = i >= step ? data[start + i - step] : 0;
+        final up = y > 0 ? data[above + i] : 0;
+        final corner = i >= step && y > 0 ? data[above + i - step] : 0;
+        final predictor = switch (filter) {
+          0 => 0,
+          1 => left,
+          2 => up,
+          3 => (left + up) >> 1,
+          _ => _paeth(left, up, corner),
+        };
+        data[start + i] = data[start + i] + predictor;
+      }
+    }
+  }
+
+  /// The Paeth predictor: whichever neighbour is closest to
+  /// left + up - corner, preferring left, then up.
+  static int _paeth(int left, int up, int corner) {
+    final estimate = left + up - corner;
+    final toLeft = (estimate - left).abs();
+    final toUp = (estimate - up).abs();
+    final toCorner = (estimate - corner).abs();
+    if (toLeft <= toUp && toLeft <= toCorner) return left;
+    return toUp <= toCorner ? up : corner;
   }
 }
 

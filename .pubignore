@@ -10,6 +10,8 @@ data/fonts/*.otf
 data/fonts/*.woff
 data/fonts/*.woff2
 data/fonts/*.eot
+test/fixtures/fonts/
+test/fixtures/png/
 
 # macOS files
 .DS_Store

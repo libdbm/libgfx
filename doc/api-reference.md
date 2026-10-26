@@ -5,7 +5,6 @@ Complete API documentation for libgfx graphics engine.
 ## Table of Contents
 
 - [GraphicsEngine](#graphicsengine)
-- [FluentGraphicsEngine](#fluentgraphicsengine)
 - [Color](#color)
 - [Path and PathBuilder](#path-and-pathbuilder)
 - [Paint System](#paint-system)
@@ -23,142 +22,134 @@ The main class for creating and manipulating graphics.
 
 ### Constructor
 
+<!-- snippet: skip -->
 ```dart
-GraphicsEngine(int width, int height)
+GraphicsEngine(int width, int height, {Rasterizer? rasterizer, GraphicsFileSystem? filesystem, Limits limits = const Limits()})
+GraphicsEngine.withCanvas(Bitmap bitmap, {Rasterizer? rasterizer, GraphicsFileSystem? filesystem, Limits limits = const Limits()})
 ```
 
-Creates a new graphics engine with the specified canvas dimensions.
+Creates a new graphics engine with the specified canvas dimensions, or one that draws into an existing bitmap.
 
 ### Basic Drawing Methods
 
+The engine has no current path: build a `Path` (see [PathBuilder](#pathbuilder)) and pass it to `fill`, `stroke` or `clip`.
+For how coordinates map to pixels and how fill rules decide the inside of a path, see the
+[Rendering Model](rendering-model.md). Names follow the W3C `CanvasRenderingContext2D` API where it has an equivalent.
+
 #### Fill Operations
 
+<!-- snippet: skip -->
 ```dart
-void setFillColor(Color color)
-void setFillPaint(Paint paint)
-void fill([Path? path])
+Paint fillStyle  // Getter and setter; a Color paints solid
+void fill(Path path, {FillRule rule = FillRule.nonZero, bool text = false})
 void fillRect(double x, double y, double width, double height)
-void fillCircle(double cx, double cy, double radius)
 void fillText(String text, double x, double y)
 ```
 
 #### Stroke Operations
 
+<!-- snippet: skip -->
 ```dart
-void setStrokeColor(Color color)
-void setStrokePaint(Paint paint)
-void setStrokeWidth(double width)
-void stroke([Path? path])
+Paint strokeStyle  // Getter and setter; a Color paints solid
+double lineWidth
+void stroke(Path path)
 void strokeRect(double x, double y, double width, double height)
-void strokeCircle(double cx, double cy, double radius)
 void strokeText(String text, double x, double y)
+```
+
+Other shapes are built with `PathBuilder` (`rect`, `roundRect`, `circle`, `ellipse`, `arc`, `polygon`, `star`) and
+passed to `fill` or `stroke`:
+
+```dart
+engine.fill(PathBuilder().roundRect(10, 10, 100, 60, 8).build());
+engine.stroke(PathBuilder().circle(200, 50, 30).build());
 ```
 
 #### Line Styling
 
+<!-- snippet: skip -->
 ```dart
-void setLineCap(LineCap cap)
+LineCap lineCap
   // LineCap.butt (default)
   // LineCap.round
   // LineCap.square
 
-void setLineJoin(LineJoin join)
+LineJoin lineJoin
   // LineJoin.miter (default)
   // LineJoin.round
   // LineJoin.bevel
 
-void setMiterLimit(double limit)
-void setLineDash(List<double> pattern, [double offset = 0])
-void clearLineDash()
-```
-
-### Path Operations
-
-```dart
-void beginPath()
-void moveTo(double x, double y)
-void lineTo(double x, double y)
-void quadraticCurveTo(double cpx, double cpy, double x, double y)
-void bezierCurveTo(double cp1x, double cp1y, double cp2x, double cp2y, double x, double y)
-void arcTo(double x1, double y1, double x2, double y2, double radius)
-void arc(double cx, double cy, double radius, double startAngle, double endAngle, [bool anticlockwise = false])
-void closePath()
+double miterLimit  // Default 4.0
+void setLineDash(List<double> segments)  // An empty list draws solid lines; there is no dash offset
 ```
 
 ### State Management
 
+<!-- snippet: skip -->
 ```dart
 void save()
 void restore()
-void reset()
 ```
+
+`save` pushes a copy of the whole graphics state: transform, clip, fill and stroke paints, stroke settings, global
+alpha, blend mode, and the text settings (font, size, alignment and baseline). `restore` pops it.
 
 ### Transformations
 
+<!-- snippet: skip -->
 ```dart
-void translate(double dx, double dy)
+void translate(double x, double y)
 void rotate(double angle)
-void scale(double sx, [double? sy])
+void scale(double x, [double? y])
 void transform(double a, double b, double c, double d, double e, double f)
 void setTransform(double a, double b, double c, double d, double e, double f)
-Matrix4 getTransform()
+void resetTransform()
 ```
 
 ### Clipping
 
+<!-- snippet: skip -->
 ```dart
-void clip([Path? path])
+void clip(Path path, {FillRule rule = FillRule.nonZero})
 void clipRect(double x, double y, double width, double height)
-void clipWithFillRule(Path path, {FillRule fillRule = FillRule.nonZero})
-void resetClip()
+void clipText(String text, double x, double y)
 ```
+
+Each clip intersects the current clip region. There is no method to remove a clip; wrap clipped drawing in
+`save`/`restore` instead.
 
 ### Canvas Operations
 
+<!-- snippet: skip -->
 ```dart
-void clear([Color? color])
-Bitmap get canvas
-Future<void> saveToFile(String filename)
-void drawImage(Bitmap image, double x, double y)
-void drawImageScaled(Bitmap image, {required double destX, required double destY, required double destWidth, required double destHeight})
-void drawImageRect(Bitmap image, {required double srcX, required double srcY, required double srcWidth, required double srcHeight, required double destX, required double destY, required double destWidth, required double destHeight})
+Bitmap canvas
+int get width
+int get height
+void clear([Color color = const Color(0x00000000)])
+void clearRect(double x, double y, double width, double height)
+Color pixel(int x, int y)  // Bitmap coordinates
+void plot(int x, int y, Color color)
+ImageData getImageData(int x, int y, int width, int height)  // A copy, bitmap coordinates
+void putImageData(ImageData image, int dx, int dy, [int dirtyX = 0, int dirtyY = 0, int? dirtyWidth, int? dirtyHeight])
+Bitmap snapshot()  // A copy of the canvas
+Future<void> write(String path, {String? format})
+void drawImage(Bitmap image, double dx, double dy, {double? width, double? height, Rectangle<double>? source, ImageFilter filter = ImageFilter.nearest})
 ```
+
+`drawImage` covers the three W3C forms: give `width` and `height` to scale, and `source` to draw part of the image.
+`filter` samples scaled or transformed images (`nearest`, `bilinear` or `bicubic`).
+
+`ImageData` holds `width`, `height` and `data`, four bytes per pixel in red, green, blue, alpha order from the top
+row, as in W3C canvas. `getImageData` returns transparent black for pixels outside the canvas; `putImageData` replaces
+pixels, ignoring the transform, clip, `globalAlpha` and composite operation, and writes only the dirty rectangle when
+one is given, at its offset from (dx, dy).
 
 ### Blend Modes
 
+<!-- snippet: skip -->
 ```dart
-void setGlobalAlpha(double alpha)
-void setGlobalCompositeOperation(BlendMode mode)
-```
-
-## FluentGraphicsEngine
-
-A fluent API wrapper that allows method chaining.
-
-### Creating Fluent API
-
-```dart
-FluentGraphicsEngine fluent()
-```
-
-### Fluent Methods
-
-All methods return `FluentGraphicsEngine` for chaining:
-
-```dart
-engine.fluent()
-  .fillColor(Color color)
-  .fillRect(double x, double y, double width, double height)
-  .fillCircle(double cx, double cy, double radius)
-  .strokeColor(Color color)
-  .strokeWidth(double width)
-  .strokeRect(double x, double y, double width, double height)
-  .translate(double dx, double dy)
-  .rotate(double angle)
-  .scale(double sx, [double? sy])
-  .save()
-  .restore()
-  // ... and more
+double globalAlpha
+BlendMode globalCompositeOperation
 ```
 
 ## Color
@@ -167,38 +158,36 @@ Represents ARGB colors with 8 bits per channel.
 
 ### Constructors
 
+<!-- snippet: skip -->
 ```dart
 const Color(int value)  // 0xAARRGGBB format
-Color.fromRGBA(int r, int g, int b, int a)  // Deprecated
-Color.fromRGB(int r, int g, int b)  // Opaque color
+const Color.fromARGB(int a, int r, int g, int b)
+Color.fromRGBA(int r, int g, int b, int a)
+Color.clamped(double r, double g, double b, double a)  // Rounds and clamps each channel to 0-255
 ```
 
 ### Properties
 
+<!-- snippet: skip -->
 ```dart
 int get value     // Raw ARGB value
-int get alpha     // Alpha channel (0-255)
-int get red       // Red channel (0-255)
-int get green     // Green channel (0-255)
-int get blue      // Blue channel (0-255)
+int get alpha     // Alpha channel (0-255), also available as a
+int get red       // Red channel (0-255), also available as r
+int get green     // Green channel (0-255), also available as g
+int get blue      // Blue channel (0-255), also available as b
 double get opacity  // Alpha as 0.0-1.0
-```
-
-### Methods
-
-```dart
-Color withAlpha(int alpha)
-Color withOpacity(double opacity)
 ```
 
 ### Predefined Colors
 
+<!-- snippet: skip -->
 ```dart
 static const Color transparent = Color(0x00000000);
-static const Color black = Color(0xFF000000);
-static const Color white = Color(0xFFFFFFFF);
-// Common colors available through Colors class
+Color get white  // Instance getter returning Color(0xFFFFFFFF)
+Color get black  // Instance getter returning Color(0xFF000000)
 ```
+
+There is no `Colors` class; write other colors as `const Color(0xAARRGGBB)`.
 
 ## Path and PathBuilder
 
@@ -206,36 +195,66 @@ static const Color white = Color(0xFFFFFFFF);
 
 Represents a vector path.
 
+<!-- snippet: skip -->
 ```dart
 class Path {
-  List<PathCommand> get commands
-  Path transform(Matrix4 matrix)
-  Rectangle getBounds()
-  Path simplify([double tolerance = 1.0])
-  bool contains(Point point, {FillRule fillRule = FillRule.nonZero})
+  List<PathCommand> get commands  // Unmodifiable
+  Rectangle get bounds
+  Path clone()
+  void add(PathCommand command)
+  void addPath(Path other)
+  Path transform(Matrix2D matrix)
+  Path simplify(double tolerance)
+
+  // Experimental, see below
+  Path union(Path other)
+  Path intersection(Path other)
+  Path difference(Path other)
+  Path xor(Path other)
 }
+
+class PathCommand {
+  final PathCommandType type;
+  final List<Point> points;  // Copied on construction and unmodifiable
+  PathCommand(PathCommandType type, List<Point> points)
+}
+
+enum PathCommandType { moveTo, lineTo, cubicCurveTo, arc, ellipse, close }
 ```
+
+`union`, `intersection`, `difference` and `xor` (and the matching static methods on `PathOperations`, together with
+`PathOperations.offset`) are marked `@experimental`. They only approximate the named operations: each path is
+flattened into a single ring, and the result is built from the points or edges of those rings rather than from their
+areas. For example, `union` joins the two outlines into one ring and does not merge overlapping shapes. See the doc
+comments in `lib/src/paths/path_operations.dart` for the exact behaviour of each.
 
 ### PathBuilder
 
 Fluent builder for creating paths.
 
+<!-- snippet: skip -->
 ```dart
 class PathBuilder {
   PathBuilder moveTo(double x, double y)
   PathBuilder lineTo(double x, double y)
-  PathBuilder quadTo(double cpx, double cpy, double x, double y)
-  PathBuilder cubicTo(double cp1x, double cp1y, double cp2x, double cp2y, double x, double y)
-  PathBuilder arcTo(double cx, double cy, double rx, double ry, double startAngle, double sweepAngle, bool largeArc)
-  PathBuilder arc(double cx, double cy, double radius, double startAngle, double endAngle, [bool anticlockwise = false])
+  PathBuilder quadraticCurveTo(double cpx, double cpy, double x, double y)
+  PathBuilder bezierCurveTo(double cp1x, double cp1y, double cp2x, double cp2y, double x, double y)
+  PathBuilder arcTo(double x1, double y1, double x2, double y2, double radius)
+  PathBuilder arc(double x, double y, double radius, double startAngle, double endAngle, [bool counterclockwise = false])
+  PathBuilder ellipse(double x, double y, double radiusX, double radiusY, double rotation, double startAngle, double endAngle, [bool counterclockwise = false])
+  PathBuilder circle(double x, double y, double radius)
   PathBuilder rect(double x, double y, double width, double height)
   PathBuilder roundRect(double x, double y, double width, double height, double radius)
-  PathBuilder ellipse(double cx, double cy, double rx, double ry)
-  PathBuilder close()
-  PathBuilder addPath(Path path, [Matrix4? transform])
+  PathBuilder polygon(double x, double y, double radius, int sides)
+  PathBuilder star(double x, double y, double outer, double inner, int points)
+  PathBuilder closePath()
+  PathBuilder addPath(Path other)
   Path build()
 }
 ```
+
+`arc` and `ellipse` follow W3C canvas: they run from `startAngle` to `endAngle` in increasing angle unless
+`counterclockwise`, and a sweep of a full turn or more draws the whole curve once.
 
 ## Paint System
 
@@ -243,86 +262,128 @@ class PathBuilder {
 
 Base class for all paint types.
 
+<!-- snippet: skip -->
 ```dart
 abstract class Paint {
-  Paint transform(Matrix4 matrix);
+  Color sample(Point point, Matrix2D inverse);
 }
 ```
 
-### SolidPaint
+### Color as paint
 
-Solid color paint.
+`Color` implements `Paint`, so a solid color is assigned wherever a paint is expected; `Color.parse('#FF0000')` reads
+`#RRGGBB` or `#RRGGBBAA` and returns a `Result`.
 
+### Gradients
+
+Gradients are immutable. `LinearGradient`, `RadialGradient` and `ConicalGradient` extend `GradientPaint`, whose
+`stops` are sorted by offset with offsets clamped to 0..1. `addColorStop` returns a new gradient of the same type.
+
+<!-- snippet: skip -->
 ```dart
-class SolidPaint extends Paint {
-  final Color color;
-  SolidPaint(this.color);
+abstract class GradientPaint extends Paint {
+  final List<ColorStop> stops;  // Unmodifiable
+  final GradientSpread spread;
+  GradientPaint addColorStop(double offset, Color color);
 }
 ```
 
 ### LinearGradient
 
+<!-- snippet: skip -->
 ```dart
-class LinearGradient extends Paint {
+class LinearGradient extends GradientPaint {
   LinearGradient({
     required Point start,
     required Point end,
-    required List<Color> colors,
-    List<double>? stops,
-    SpreadMode spreadMode = SpreadMode.pad,
+    required List<ColorStop> stops,
+    GradientSpread spread = GradientSpread.pad,
   });
 }
 ```
 
 ### RadialGradient
 
+<!-- snippet: skip -->
 ```dart
-class RadialGradient extends Paint {
+class RadialGradient extends GradientPaint {
   RadialGradient({
     required Point center,
     required double radius,
+    required List<ColorStop> stops,
+    GradientSpread spread = GradientSpread.pad,
     Point? focal,
-    required List<Color> colors,
-    List<double>? stops,
-    SpreadMode spreadMode = SpreadMode.pad,
   });
 }
 ```
 
-### ConicGradient
+### ConicalGradient
 
+<!-- snippet: skip -->
 ```dart
-class ConicGradient extends Paint {
-  ConicGradient({
+class ConicalGradient extends GradientPaint {
+  ConicalGradient({
     required Point center,
-    required double startAngle,
-    required List<Color> colors,
-    List<double>? stops,
-    SpreadMode spreadMode = SpreadMode.pad,
+    double startAngle = 0.0,
+    required List<ColorStop> stops,
+    GradientSpread spread = GradientSpread.pad,
   });
 }
+```
+
+### Engine Factories
+
+The gradient factories return gradients with no stops; add stops with `addColorStop`.
+
+<!-- snippet: skip -->
+```dart
+LinearGradient createLinearGradient(double x0, double y0, double x1, double y1)
+RadialGradient createRadialGradient(double x0, double y0, double r0, double x1, double y1, double r1)
+ConicalGradient createConicGradient(double startAngle, double x, double y)
+PatternPaint createPattern(Bitmap image, PatternRepeat repeat, [Matrix2D? transform])
+```
+
+`createRadialGradient` uses the second circle as the center and radius, and the first center as the focal point when
+`r0 > 0`.
+
+```dart
+final gradient = engine
+    .createLinearGradient(0, 0, 200, 0)
+    .addColorStop(0, const Color(0xFFFF0000))
+    .addColorStop(1, const Color(0xFF0000FF));
+engine.fillStyle = gradient;
+engine.fillRect(0, 0, 200, 100);
 ```
 
 ### PatternPaint
 
+<!-- snippet: skip -->
 ```dart
 class PatternPaint extends Paint {
   PatternPaint({
-    required Bitmap bitmap,
-    Matrix4? transform,
-    RepeatMode repeatX = RepeatMode.repeat,
-    RepeatMode repeatY = RepeatMode.repeat,
+    required Bitmap pattern,
+    Matrix2D? transform,
+    PatternRepeat repeat = PatternRepeat.repeat,
+    double opacity = 1.0,
   });
+  Bitmap get pattern  // A copy
+  Matrix2D get transform  // A copy
 }
+
+enum PatternRepeat { repeat, repeatX, repeatY, noRepeat }
 ```
 
-### SpreadMode
+The constructor copies `pattern` and `transform`, so later changes to them do not affect the paint. A singular
+transform makes the pattern paint nothing.
 
+### GradientSpread
+
+<!-- snippet: skip -->
 ```dart
-enum SpreadMode {
+enum GradientSpread {
   pad,      // Extend with edge colors
-  repeat,   // Repeat gradient
   reflect,  // Mirror gradient
+  repeat,   // Repeat gradient
 }
 ```
 
@@ -330,68 +391,123 @@ enum SpreadMode {
 
 ### Font Loading
 
+<!-- snippet: skip -->
 ```dart
-Future<void> setFontFromFile(String path)
-Future<void> setFontFromBytes(Uint8List bytes)
-void setFont(Font font)
+Future<Result<TTFFont, ErrorDetails>> loadFont(String path)
+Result<TTFFont, ErrorDetails> readFont(Uint8List bytes)
+
+static Future<Result<TTFFont, ErrorDetails>> TTFFont.load(String path, {required GraphicsFileSystem filesystem, Limits limits = const Limits()})
+static Result<TTFFont, ErrorDetails> TTFFont.fromBytes(Uint8List bytes, {Limits limits = const Limits()})
 ```
+
+On failure the engine keeps its current font. The engine applies the `Limits` it was created with. `loadFont`
+requires a configured [GraphicsFileSystem](#file-io-and-graphicsfilesystem).
 
 ### Text Configuration
 
+<!-- snippet: skip -->
 ```dart
-void setFontSize(double size)
-void setTextAlign(TextAlign align)
-  // TextAlign.left (default)
+Font? font  // Getter and setter
+double fontSize  // Default 12.0
+TextAlign textAlign
+  // TextAlign.start (default): left for left-to-right text, right for right-to-left
+  // TextAlign.end: right for left-to-right text, left for right-to-left
+  // TextAlign.left
   // TextAlign.center
   // TextAlign.right
-  
-void setTextBaseline(TextBaseline baseline)
+  // TextAlign.justify
+
+TextBaseline textBaseline
+  // TextBaseline.alphabetic (default)
   // TextBaseline.top
   // TextBaseline.middle
-  // TextBaseline.alphabetic (default)
   // TextBaseline.bottom
+  // TextBaseline.ideographic
+  // TextBaseline.hanging
 
-void setLetterSpacing(double spacing)
-void setWordSpacing(double spacing)
+TextDirection direction
+  // TextDirection.ltr (default)
+  // TextDirection.rtl
+  // TextDirection.auto: from the first strong character
+
+TextRendering textRendering
+  // TextRendering.auto (default), optimizeSpeed, optimizeLegibility: partly covered pixels darkened
+  // TextRendering.geometricPrecision: exact coverage
+```
+
+Font, size, alignment, baseline, direction and rendering are part of the saved state, so `restore` returns them to
+their values at the matching `save`. Text is shaped one glyph per character, with the font's `ccmp` and `liga`
+ligatures (flags, emoji sequences, `fi`), and laid out by a simplified Unicode bidirectional algorithm (UAX #9 without
+explicit embeddings, isolates or bracket pairs) in the paragraph `direction`: right-to-left runs read right to left,
+brackets in them are mirrored, and Arabic letters join through the font's presentation forms.
+
+Unhinted glyph stems that fall between pixels draw as two grey columns. Unless `textRendering` is
+`geometricPrecision`, `fillText` and `strokeText` map coverage `c` to `c^0.6` so that they read less blurred, and
+`fill(path, text: true)` does the same for glyph outlines from `TextRenderer` or `Font.path`.
+
+### Text Drawing
+
+<!-- snippet: skip -->
+```dart
+void fillText(String text, double x, double y)
+void strokeText(String text, double x, double y)
+void clipText(String text, double x, double y)
 ```
 
 ### Text Measurement
 
+<!-- snippet: skip -->
 ```dart
 TextMetrics measureText(String text)
 
 class TextMetrics {
   final double width;
-  final double actualBoundingBoxLeft;
-  final double actualBoundingBoxRight;
-  final double actualBoundingBoxAscent;
-  final double actualBoundingBoxDescent;
-  final double fontBoundingBoxAscent;
-  final double fontBoundingBoxDescent;
+  final double height;
+  final double ascent;
+  final double descent;
+  final double lineHeight;
 }
 ```
 
 ## Transformations
 
-### Matrix4
+### Matrix2D
 
-4x4 transformation matrix.
+2D affine transformation matrix `[a c tx; b d ty]`.
 
+<!-- snippet: skip -->
 ```dart
-class Matrix4 {
+class Matrix2D {
+  double a, b, c, d, tx, ty;
+
   // Constructors
-  Matrix4.identity()
-  Matrix4.translation(double x, double y, [double z = 0])
-  Matrix4.rotation(double angle)
-  Matrix4.scaling(double x, [double? y, double? z])
-  
-  // Operations
-  void translate(double x, double y, [double z = 0])
-  void rotate(double angle)
-  void scale(double x, [double? y, double? z])
-  Matrix4 multiply(Matrix4 other)
-  Matrix4 get inverse
+  Matrix2D(double a, double b, double c, double d, double tx, double ty)
+  Matrix2D.identity()
+  Matrix2D.copy(Matrix2D other)
+  Matrix2D.translation(double x, double y)
+  Matrix2D.scaling(double x, double y)
+  Matrix2D.rotation(double radians)
+
+  // Operations (these modify the matrix in place)
+  void reset()  // To identity
+  void translate(double x, double y)
+  void scale(double x, [double? y])
+  void rotate(double radians)
+  void shear(double x, double y)
+  void multiply(Matrix2D other)
+  void premultiply(Matrix2D other)
+  void assign(double a, double b, double c, double d, double tx, double ty)
+
+  // Queries
+  Matrix2D clone()
+  Matrix2D operator *(Matrix2D other)
   Point transform(Point point)
+  Point direction(Point vector)  // Applies the matrix without its translation
+  Result<Matrix2D, ErrorDetails> inverse()  // Err with ErrorKind.singular when not invertible
+  ({Point translation, double rotation, Point scale}) decompose()
+  double get determinant
+  bool get isInvertible
+  bool get isIdentity
 }
 ```
 
@@ -401,83 +517,114 @@ class Matrix4 {
 
 Pixel buffer representation.
 
+<!-- snippet: skip -->
 ```dart
 class Bitmap {
   final int width;
   final int height;
   Uint32List get pixels
-  
+
   // Constructors
   Bitmap(int width, int height)
-  static Future<Bitmap> fromFile(String path)
-  static Bitmap fromBytes(Uint8List bytes, int width, int height)
-  
+  Bitmap.fromPixels(int width, int height, Uint32List pixels)
+  Bitmap.empty(int width, int height)
+
   // Methods
-  Color getPixel(int x, int y)
-  void setPixel(int x, int y, Color color)
+  Color pixel(int x, int y)
+  void plot(int x, int y, Color color)
+  void clear(Color color)
   Bitmap clone()
-  Future<void> saveToFile(String path)
+  Bitmap scale(int columns, int rows)
+  Bitmap crop(int x, int y, int columns, int rows)
+  Bitmap mirror()  // Left to right
+  Bitmap flip()  // Top to bottom
+  Bitmap rotate90()
+  Bitmap rotate180()
+  Bitmap rotate270()
+  Bitmap rotate(double angle, [Color background = Color.transparent])
+  Bitmap fade(double opacity)
 }
 ```
 
-### Image Rendering
+### Loading and Saving Images
 
+<!-- snippet: skip -->
 ```dart
-class ImageRenderer {
-  static void render(
-    Bitmap source,
-    Bitmap destination,
-    Matrix4 transform,
-    {Paint? paint, double opacity = 1.0}
-  );
-}
+static Result<Bitmap, ErrorDetails> GraphicsEngine.decode(Uint8List bytes, {String? format, Limits limits = const Limits()})
+static Uint8List GraphicsEngine.encode(Bitmap image, String format)  // "png", "bmp", "p3"/"ppm", "p6"
 ```
+
+Without a `format`, `decode` detects PNG, BMP and P3/P6 PPM from the data. Draw a loaded image with the engine's
+`drawImage` (see [Canvas Operations](#canvas-operations)).
 
 ## Filters
 
 ### Applying Filters
 
+Filters are static methods on `ImageFilters`. Each takes a source `Bitmap` and returns a new one; apply the result to
+the canvas with `drawImage`.
+
+<!-- snippet: skip -->
 ```dart
-void applyGaussianBlur(double radius)
-void applyBoxBlur(double radius)
-void applySharpen([double amount = 1.0])
-void applyEdgeDetect({int threshold = 128})
-void applyEmboss()
-void applyMotionBlur(double angle, double distance)
+static Bitmap ImageFilters.gaussian(Bitmap source, double sigma, {Limits limits = const Limits()})
+static Bitmap ImageFilters.box(Bitmap source, int radius, {Limits limits = const Limits()})
+static Bitmap ImageFilters.stack(Bitmap source, int radius, {Limits limits = const Limits()})
+static Bitmap ImageFilters.motion(Bitmap source, double angle, int distance, {Limits limits = const Limits()})
+static Bitmap ImageFilters.sharpen(Bitmap source, double amount)
+static Bitmap ImageFilters.edges(Bitmap source, {double threshold = 128})
+static Bitmap ImageFilters.emboss(Bitmap source, {double strength = 1.0})
 ```
+
+The blur radius (for `gaussian`, the kernel radius of `3 * sigma`) is checked against `limits.radius`.
 
 ### Custom Filters
 
+<!-- snippet: skip -->
 ```dart
-void applyConvolution(List<List<double>> kernel, [double divisor = 1.0, double bias = 0.0])
+static Bitmap ImageFilters.convolve(Bitmap source, List<List<double>> kernel)
 ```
 
 ## Clipping
 
 ### ClipRegion
 
+<!-- snippet: skip -->
 ```dart
 class ClipRegion {
-  void set(Path path, {FillRule fillRule = FillRule.nonZero})
-  void intersect(Path path, {FillRule fillRule = FillRule.nonZero})
-  void clear()
+  final Rectangle<int> bounds;
+  final FillRule rule;
+
+  ClipRegion.fromPath(Path path, Matrix2D transform, int width, int height, {FillRule rule = FillRule.evenOdd, Rasterizer? rasterizer})
+  ClipRegion.fromRect(int x, int y, int width, int height)
+  ClipRegion.empty()
+
+  ClipRegion intersect(ClipRegion other)
+  ClipRegion clone()
   bool contains(int x, int y)
+  int coverage(int x, int y)
+  bool includes(Point point)
+  bool get isEmpty
 }
 ```
 
 ### FillRule
 
+<!-- snippet: skip -->
 ```dart
 enum FillRule {
-  nonZero,  // Default winding rule
   evenOdd,  // Alternating fill rule
+  nonZero,  // Winding rule
 }
 ```
+
+`fill` and the engine's `clip` default to `FillRule.nonZero`, as W3C canvas does. See
+[Fill rules](rendering-model.md#fill-rules) in the Rendering Model.
 
 ## Blend Modes
 
 ### Porter-Duff Modes
 
+<!-- snippet: skip -->
 ```dart
 enum BlendMode {
   // Porter-Duff modes
@@ -493,9 +640,9 @@ enum BlendMode {
   srcAtop,
   dstAtop,
   xor,
-  plus,
-  
-  // Separable blend modes
+
+  // Additional blend modes
+  add,
   multiply,
   screen,
   overlay,
@@ -507,12 +654,6 @@ enum BlendMode {
   softLight,
   difference,
   exclusion,
-  
-  // Non-separable blend modes
-  hue,
-  saturation,
-  color,
-  luminosity,
 }
 ```
 
@@ -520,62 +661,139 @@ enum BlendMode {
 
 ### Point
 
+Immutable 2D point or vector.
+
+<!-- snippet: skip -->
 ```dart
 class Point {
   final double x;
   final double y;
-  
-  Point(this.x, this.y);
-  Point transform(Matrix4 matrix);
-  double distanceTo(Point other);
+
+  const Point(this.x, this.y);
+  static Point get zero
+  static Point lerp(Point a, Point b, double t)
+  static Point midpoint(Point a, Point b)
+
+  double get length
+  double get length2
+  Point normalized()
+  double dot(Point other)
+  double cross(Point other)
+  double distance(Point other)
+  double distance2(Point other)  // Squared
+  Point rotate(double angle)
+  Point rotateAround(Point center, double angle)
+  bool equals(Point other, {double tolerance = 1e-9})
+  Point operator +(Point other)
+  Point operator -(Point other)
+  Point operator *(double scale)
 }
 ```
 
 ### Rectangle
 
+<!-- snippet: skip -->
 ```dart
-class Rectangle {
-  final double x;
-  final double y;
-  final double width;
-  final double height;
-  
-  Rectangle(this.x, this.y, this.width, this.height);
-  bool contains(Point point);
-  Rectangle intersect(Rectangle other);
-  Rectangle union(Rectangle other);
+class Rectangle<T extends num> {
+  final T left;
+  final T top;
+  final T width;
+  final T height;
+
+  const Rectangle(this.left, this.top, this.width, this.height);
+  Rectangle.fromLTRB(T left, T top, T right, T bottom)
+  Rectangle.fromLTWH(T left, T top, T width, T height)
+  Rectangle.fromCenter(T cx, T cy, T width, T height)
+
+  T get right
+  T get bottom
+  bool get isEmpty
+  Rectangle<T>? intersection(Rectangle<T> other)  // null when they do not overlap
 }
 ```
 
 ### ColorStop
 
+<!-- snippet: skip -->
 ```dart
 class ColorStop {
   final double offset;  // 0.0 to 1.0
   final Color color;
-  
+
   ColorStop(this.offset, this.color);
 }
 ```
 
 ## Error Handling
 
-### GraphicsException
+### Result
+
+Operations whose failure is an expected outcome, such as decoding untrusted font or image data, return
+`Result<T, ErrorDetails>` instead of throwing. This covers `TTFFont.fromBytes`, `TTFFont.load`,
+`GraphicsEngine.readFont`, `GraphicsEngine.loadFont`, `GraphicsEngine.decode` and
+`Matrix2D.inverse`.
+
+<!-- snippet: skip -->
+```dart
+sealed class Result<T, E> {
+  Result<U, E> map<U>(U Function(T value) transform)
+  Result<U, E> flatMap<U>(Result<U, E> Function(T value) transform)
+  R fold<R>(R Function(T value) ok, R Function(E error) err)
+}
+final class Ok<T, E> extends Result<T, E> { final T value; }
+final class Err<T, E> extends Result<T, E> { final E error; }
+
+final class ErrorDetails {
+  final ErrorKind kind;
+  final String message;
+  final Object? cause;
+}
+
+enum ErrorKind { truncated, malformed, unsupported, limit, io, singular }
+```
 
 ```dart
-class GraphicsException implements Exception {
-  final String message;
-  GraphicsException(this.message);
+final result = GraphicsEngine.decode(Uint8List(0));
+switch (result) {
+  case Ok(:final value):
+    engine.drawImage(value, 0, 0);
+  case Err(:final error):
+    print('${error.kind.name}: ${error.message}');
 }
 ```
 
-Common exceptions:
+### Limits
 
-- Invalid image format
-- File not found
-- Invalid transformation matrix
-- Clipping region errors
-- Font loading errors
+`Limits` bounds the resources that untrusted input may claim before memory is allocated. It is immutable; pass one to
+the `GraphicsEngine` constructor, `TTFFont.fromBytes`, `GraphicsEngine.decode` or the blur filters.
+
+<!-- snippet: skip -->
+```dart
+final class Limits {
+  const Limits({
+    int dimension = 32768,    // Largest width or height, in pixels
+    int pixels = 1 << 28,     // Largest pixel count
+    int font = 64 << 20,      // Largest font file, in bytes
+    int depth = 16,           // Deepest composite glyph nesting
+    int points = 65536,       // Largest expanded glyph size
+    int radius = 256,         // Largest blur radius, in pixels
+    int dashes = 1000000,     // Most dash pattern elements applied to one path
+  });
+}
+```
+
+### Exceptions
+
+Programming errors and unrecoverable states throw. libgfx exceptions extend `LibgfxException`, which has a `message`
+and an optional `cause`:
+
+- `GraphicsException`, and its subclass `RenderException`
+- `ResourceException`, and its subclasses `FontException` and `ImageException`
+- `UnsupportedFormatException`
+- `ConfigurationException`
+- `ResourceLimitException`
+
+Calling `write` or `loadFont` without a configured `GraphicsFileSystem` throws `UnsupportedError`.
 
 ## Performance Considerations
 
@@ -591,7 +809,7 @@ Common exceptions:
 
 - Bitmaps are stored as `Uint32List` (4 bytes per pixel)
 - Large canvases consume significant memory (width × height × 4 bytes)
-- Dispose of unused bitmaps when possible
+- Release references to unused bitmaps so they can be garbage collected
 - Use appropriate image formats for your needs
 
 ## Thread Safety
@@ -612,17 +830,18 @@ libgfx is pure Dart and runs on all platforms that support Dart:
 - [Getting Started Guide](getting-started.md)
 - [Advanced Features](advanced-features.md)
 - [Examples](examples.md)
+- [Rendering Model](rendering-model.md)
 
 ## File IO and GraphicsFileSystem
 
 libgfx performs all file IO (reading fonts/images and writing images) through a pluggable GraphicsFileSystem so it can run on the web and in isolates without depending on dart:io.
 
 - Interface: GraphicsFileSystem (lib/src/io/file_system.dart)
-  - Future<Uint8List?> readFile(String path)
-  - Future<void> writeFile(String path, List<int> bytes)
+  - Future<Uint8List?> read(String path)
+  - Future<void> write(String path, List<int> bytes)
 - Default VM adapter: LocalGraphicsFileSystem (import from package:libgfx/io/local_file_system.dart)
 
-When you want to use saveToFile or setFontFromFile you must attach a GraphicsFileSystem to the engine.
+When you want to use write or loadFont you must attach a GraphicsFileSystem to the engine.
 
 Example (VM/CLI):
 
@@ -633,22 +852,25 @@ import 'package:libgfx/io/local_file_system.dart';
 void main() async {
   final engine = GraphicsEngine(400, 300, filesystem: const LocalGraphicsFileSystem());
 
-  engine.setFillColor(const Color(0xFF009688));
+  engine.fillStyle = const Color(0xFF009688);
   engine.fillRect(50, 50, 200, 150);
 
   // Load a font using the filesystem
-  await engine.setFontFromFile('data/fonts/Roboto-Regular.ttf');
-  engine.setFontSize(24);
+  final font = await engine.loadFont('data/fonts/Roboto-Regular.ttf');
+  if (font case Err(:final error)) {
+    print('Font not loaded: ${error.message}');
+  }
+  engine.fontSize = 24;
   engine.fillText('Hello FS', 80, 130);
 
   // Save using the filesystem
-  await engine.saveToFile('output/example.png');
+  await engine.write('output/example.png');
 }
 ```
 
 Methods that require a configured filesystem:
-- GraphicsEngine.saveToFile
-- GraphicsEngine.setFontFromFile
+- GraphicsEngine.write
+- GraphicsEngine.loadFont
 - Any helper in io/ that reads fonts/images via the filesystem
 
 Notes:
@@ -656,4 +878,4 @@ Notes:
 - LocalGraphicsFileSystem lives under package:libgfx/io/ so apps targeting the VM can opt-in without pulling dart:io into web builds.
 
 Breaking change notice:
-- Recent versions introduced GraphicsFileSystem and removed direct dart:io usage from core APIs. If you previously called saveToFile or setFontFromFile without configuration, you now must set engine.filesystem or pass filesystem: in the constructor. See Getting Started for migration tips.
+- Recent versions introduced GraphicsFileSystem and removed direct dart:io usage from core APIs. If you previously called write or loadFont without configuration, you now must set engine.filesystem or pass filesystem: in the constructor. See Getting Started for migration tips.

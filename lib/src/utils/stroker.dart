@@ -7,30 +7,30 @@ import 'curve_utils.dart';
 import 'math_utils.dart';
 
 /// Helper class to store join calculation data
-class _JoinData {
-  final Point vIn;
-  final Point vOut;
-  final Point nIn;
-  final Point nOut;
-  final double turnAngle;
+class _Join {
+  final Point incoming;
+  final Point outgoing;
+  final Point normalIn;
+  final Point normalOut;
+  final double turn;
   final bool isLeftTurn;
 
-  _JoinData(
-    this.vIn,
-    this.vOut,
-    this.nIn,
-    this.nOut,
-    this.turnAngle,
+  _Join(
+    this.incoming,
+    this.outgoing,
+    this.normalIn,
+    this.normalOut,
+    this.turn,
     this.isLeftTurn,
   );
 }
 
 /// Helper class to store miter calculation data
-class _MiterData {
+class _Miter {
   final double length;
-  final bool exceedsLimit;
+  final bool exceeds;
 
-  _MiterData(this.length, this.exceedsLimit);
+  _Miter(this.length, this.exceeds);
 }
 
 /// Enhanced stroker with better numerical stability and professional-grade features
@@ -40,25 +40,21 @@ class Stroker {
   static const double minMiterLimit = 1.0;
   static const double maxMiterLimit = 50.0;
 
-  Path stroke(Path inputPath, GraphicsState state) {
+  Path stroke(final Path path, GraphicsState state) {
     final builder = PathBuilder();
-    final flattenedSubPaths = _flattenPath(inputPath);
+    final flattened = _flatten(path);
 
-    for (final points in flattenedSubPaths) {
+    for (final points in flattened) {
       if (points.length < 2) continue;
-      _strokeSubPath(builder, points, state);
+      _subpath(builder, points, state);
     }
     return builder.build();
   }
 
-  void _strokeSubPath(
-    PathBuilder builder,
-    List<Point> points,
-    GraphicsState state,
-  ) {
+  void _subpath(PathBuilder builder, List<Point> points, GraphicsState state) {
     if (points.length < 2) return;
 
-    final isClosed = _isPathClosed(points);
+    final closed = _closed(points);
     final halfWidth = state.strokeWidth / 2.0;
 
     if (halfWidth <= MathUtils.geometricEpsilon) {
@@ -70,101 +66,83 @@ class Stroker {
       return;
     }
 
-    final leftContour = <Point>[];
-    final rightContour = <Point>[];
+    final left = <Point>[];
+    final right = <Point>[];
 
     // Process each vertex with improved join handling
     for (int i = 0; i < points.length; i++) {
-      final prev = _getPreviousPoint(points, i, isClosed);
+      final previous = _previous(points, i, closed);
       final current = points[i];
-      final next = _getNextPoint(points, i, isClosed);
+      final next = _next(points, i, closed);
 
-      _addEnhancedJoin(
-        state,
-        current,
-        prev,
-        next,
-        halfWidth,
-        leftContour,
-        rightContour,
-        isClosed,
-      );
+      _join(state, current, previous, next, halfWidth, left, right);
     }
 
-    if (rightContour.isEmpty || leftContour.isEmpty) return;
+    if (right.isEmpty || left.isEmpty) return;
 
     // Build the stroke outline
-    _buildStrokeOutline(
-      builder,
-      rightContour,
-      leftContour,
-      points,
-      state,
-      halfWidth,
-      isClosed,
-    );
+    _outline(builder, right, left, points, state, halfWidth, closed);
   }
 
-  Point? _getPreviousPoint(List<Point> points, int index, bool isClosed) {
+  Point? _previous(List<Point> points, int index, final bool closed) {
     if (index > 0) return points[index - 1];
-    if (isClosed && points.length > 2)
+    if (closed && points.length > 2)
       return points[points.length - 2]; // Skip duplicate last point
     return null;
   }
 
-  Point? _getNextPoint(List<Point> points, int index, bool isClosed) {
+  Point? _next(List<Point> points, int index, final bool closed) {
     if (index < points.length - 1) return points[index + 1];
-    if (isClosed && points.length > 2)
+    if (closed && points.length > 2)
       return points[1]; // Skip duplicate first point
     return null;
   }
 
-  bool _isPathClosed(List<Point> points) {
+  bool _closed(List<Point> points) {
     if (points.length < 3) return false;
     return (points.first - points.last).length2 <
         MathUtils.geometricEpsilon * MathUtils.geometricEpsilon;
   }
 
-  void _addEnhancedJoin(
+  void _join(
     GraphicsState state,
     Point p,
-    Point? pPrev,
-    Point? pNext,
+    final Point? previous,
+    final Point? next,
     double halfWidth,
     List<Point> left,
     List<Point> right,
-    bool isClosed,
   ) {
-    if (_handleEndpoints(p, pPrev, pNext, halfWidth, left, right)) {
+    if (_endpoint(p, previous, next, halfWidth, left, right)) {
       return;
     }
 
-    final joinData = _calculateJoinData(p, pPrev!, pNext!);
-    if (joinData == null) return; // Skip degenerate cases
+    final join = _analyze(p, previous!, next!);
+    if (join == null) return; // Skip degenerate cases
 
-    if (_handleStraightLine(joinData, p, halfWidth, left, right)) {
+    if (_straight(join, p, halfWidth, left, right)) {
       return;
     }
 
-    _applyJoinType(state, p, joinData, halfWidth, left, right);
+    _apply(state, p, join, halfWidth, left, right);
   }
 
-  bool _handleEndpoints(
+  bool _endpoint(
     Point p,
-    Point? pPrev,
-    Point? pNext,
+    final Point? previous,
+    final Point? next,
     double halfWidth,
     List<Point> left,
     List<Point> right,
   ) {
-    if (pPrev == null || pNext == null) {
-      final direction = (pNext ?? p) - (pPrev ?? p);
+    if (previous == null || next == null) {
+      final direction = (next ?? p) - (previous ?? p);
       if (direction.length2 <
           MathUtils.geometricEpsilon * MathUtils.geometricEpsilon) {
         return true; // Skip degenerate point
       }
 
-      final normal = _getNormal(direction).normalized() * halfWidth;
+      final normal = _normal(direction).normalized() * halfWidth;
       right.add(p + normal);
       left.add(p - normal);
       return true;
@@ -172,169 +150,162 @@ class Stroker {
     return false;
   }
 
-  _JoinData? _calculateJoinData(Point p, Point pPrev, Point pNext) {
-    final vIn = (p - pPrev).normalized();
-    final vOut = (pNext - p).normalized();
+  _Join? _analyze(Point p, final Point previous, final Point next) {
+    final incoming = (p - previous).normalized();
+    final outgoing = (next - p).normalized();
 
     // Check for degenerate cases
-    if (vIn.length2 < MathUtils.geometricEpsilon * MathUtils.geometricEpsilon ||
-        vOut.length2 <
+    if (incoming.length2 <
+            MathUtils.geometricEpsilon * MathUtils.geometricEpsilon ||
+        outgoing.length2 <
             MathUtils.geometricEpsilon * MathUtils.geometricEpsilon) {
       return null; // Skip degenerate segments
     }
 
-    final nIn = _getNormal(vIn);
-    final nOut = _getNormal(vOut);
+    final normalIn = _normal(incoming);
+    final normalOut = _normal(outgoing);
 
     // Calculate turn direction and angle
-    final cross = vIn.cross(vOut);
-    final dot = vIn.dot(vOut);
-    final turnAngle = atan2(cross.abs(), dot);
+    final cross = incoming.cross(outgoing);
+    final dot = incoming.dot(outgoing);
+    final turn = atan2(cross.abs(), dot);
     final isLeftTurn = cross > 0;
 
-    return _JoinData(vIn, vOut, nIn, nOut, turnAngle, isLeftTurn);
+    return _Join(incoming, outgoing, normalIn, normalOut, turn, isLeftTurn);
   }
 
-  bool _handleStraightLine(
-    _JoinData joinData,
+  bool _straight(
+    final _Join join,
     Point p,
     double halfWidth,
     List<Point> left,
     List<Point> right,
   ) {
-    if (joinData.turnAngle < smallAngle) {
-      right.add(p + joinData.nIn * halfWidth);
-      left.add(p - joinData.nIn * halfWidth);
+    if (join.turn < smallAngle) {
+      right.add(p + join.normalIn * halfWidth);
+      left.add(p - join.normalIn * halfWidth);
       return true;
     }
     return false;
   }
 
-  void _applyJoinType(
+  void _apply(
     GraphicsState state,
     Point p,
-    _JoinData joinData,
+    final _Join join,
     double halfWidth,
     List<Point> left,
     List<Point> right,
   ) {
-    final miterData = _calculateMiterData(
-      joinData,
-      halfWidth,
-      state.miterLimit,
-    );
+    final miter = _extent(join, halfWidth, state.miterLimit);
 
     switch (state.lineJoin) {
       case LineJoin.miter:
-        if (miterData.exceedsLimit) {
-          _addBevelJoin(
+        if (miter.exceeds) {
+          _bevel(
             p,
-            joinData.nIn,
-            joinData.nOut,
+            join.normalIn,
+            join.normalOut,
             halfWidth,
             left,
             right,
-            joinData.isLeftTurn,
+            join.isLeftTurn,
           );
         } else {
-          _addMiterJoin(
+          _miter(
             p,
-            joinData.vIn,
-            joinData.vOut,
-            joinData.nIn,
-            joinData.nOut,
+            join.incoming,
+            join.outgoing,
+            join.normalIn,
+            join.normalOut,
             halfWidth,
             left,
             right,
-            joinData.isLeftTurn,
+            join.isLeftTurn,
           );
         }
         break;
 
       case LineJoin.round:
-        _addRoundJoin(
+        _round(
           p,
-          joinData.vIn,
-          joinData.vOut,
-          joinData.nIn,
-          joinData.nOut,
+          join.incoming,
+          join.outgoing,
+          join.normalIn,
+          join.normalOut,
           halfWidth,
           left,
           right,
-          joinData.isLeftTurn,
-          joinData.turnAngle,
+          join.isLeftTurn,
+          join.turn,
         );
         break;
 
       case LineJoin.bevel:
-        _addBevelJoin(
+        _bevel(
           p,
-          joinData.nIn,
-          joinData.nOut,
+          join.normalIn,
+          join.normalOut,
           halfWidth,
           left,
           right,
-          joinData.isLeftTurn,
+          join.isLeftTurn,
         );
         break;
     }
   }
 
-  _MiterData _calculateMiterData(
-    _JoinData joinData,
-    double halfWidth,
-    double miterLimit,
-  ) {
-    final theta = joinData.turnAngle / 2;
-    final miterLength = halfWidth / sin(theta);
-    final clampedMiterLimit = _clampMiterLimit(miterLimit);
-    final exceedsLimit = miterLength > clampedMiterLimit * halfWidth;
+  _Miter _extent(final _Join join, double halfWidth, final double limit) {
+    final theta = join.turn / 2;
+    final length = halfWidth / sin(theta);
+    final clamped = _clamp(limit);
+    final exceeds = length > clamped * halfWidth;
 
-    return _MiterData(miterLength, exceedsLimit);
+    return _Miter(length, exceeds);
   }
 
-  void _addMiterJoin(
+  void _miter(
     Point p,
-    Point vIn,
-    Point vOut,
-    Point nIn,
-    Point nOut,
+    final Point incoming,
+    final Point outgoing,
+    final Point normalIn,
+    final Point normalOut,
     double halfWidth,
     List<Point> left,
     List<Point> right,
     bool isLeftTurn,
   ) {
     // Calculate miter vector using angle bisector
-    final bisector = (vIn + vOut).normalized();
-    final miterNormal = _getNormal(bisector);
+    final bisector = (incoming + outgoing).normalized();
+    final normal = _normal(bisector);
 
     // Calculate miter length more robustly
-    final denominator = miterNormal.dot(nOut);
+    final denominator = normal.dot(normalOut);
 
     if (denominator.abs() < MathUtils.geometricEpsilon) {
       // Fallback to bevel for degenerate cases
-      _addBevelJoin(p, nIn, nOut, halfWidth, left, right, isLeftTurn);
+      _bevel(p, normalIn, normalOut, halfWidth, left, right, isLeftTurn);
       return;
     }
 
-    final miterLength = halfWidth / denominator.abs();
-    final miterPoint = miterNormal * (isLeftTurn ? -miterLength : miterLength);
+    final length = halfWidth / denominator.abs();
+    final tip = normal * (isLeftTurn ? -length : length);
 
     if (isLeftTurn) {
-      left.add(p + miterPoint);
-      right.add(p + nIn * halfWidth);
-      right.add(p + nOut * halfWidth);
+      left.add(p + tip);
+      right.add(p + normalIn * halfWidth);
+      right.add(p + normalOut * halfWidth);
     } else {
-      right.add(p + miterPoint);
-      left.add(p - nIn * halfWidth);
-      left.add(p - nOut * halfWidth);
+      right.add(p + tip);
+      left.add(p - normalIn * halfWidth);
+      left.add(p - normalOut * halfWidth);
     }
   }
 
-  void _addBevelJoin(
+  void _bevel(
     Point p,
-    Point nIn,
-    Point nOut,
+    final Point normalIn,
+    final Point normalOut,
     double halfWidth,
     List<Point> left,
     List<Point> right,
@@ -342,167 +313,145 @@ class Stroker {
   ) {
     if (isLeftTurn) {
       // On the left side, add two points for the bevel
-      left.add(p - nIn * halfWidth);
-      left.add(p - nOut * halfWidth);
+      left.add(p - normalIn * halfWidth);
+      left.add(p - normalOut * halfWidth);
       // On the right side, the join point
-      right.add(p + nIn * halfWidth);
-      right.add(p + nOut * halfWidth);
+      right.add(p + normalIn * halfWidth);
+      right.add(p + normalOut * halfWidth);
     } else {
       // On the right side, add two points for the bevel
-      right.add(p + nIn * halfWidth);
-      right.add(p + nOut * halfWidth);
+      right.add(p + normalIn * halfWidth);
+      right.add(p + normalOut * halfWidth);
       // On the left side, the join point
-      left.add(p - nIn * halfWidth);
-      left.add(p - nOut * halfWidth);
+      left.add(p - normalIn * halfWidth);
+      left.add(p - normalOut * halfWidth);
     }
   }
 
-  void _addRoundJoin(
+  void _round(
     Point p,
-    Point vIn,
-    Point vOut,
-    Point nIn,
-    Point nOut,
+    final Point incoming,
+    final Point outgoing,
+    final Point normalIn,
+    final Point normalOut,
     double halfWidth,
     List<Point> left,
     List<Point> right,
     bool isLeftTurn,
-    double turnAngle,
+    final double turn,
   ) {
     // Calculate number of arc segments based on angle
-    final steps = max(2, (turnAngle * halfWidth / 2).ceil());
+    final steps = max(2, (turn * halfWidth / 2).ceil());
 
-    final startAngle = atan2(nIn.y, nIn.x);
-    final endAngle = atan2(nOut.y, nOut.x);
+    final startAngle = atan2(normalIn.y, normalIn.x);
+    final endAngle = atan2(normalOut.y, normalOut.x);
 
     // Calculate angle difference based on turn direction
-    var angleDiff = endAngle - startAngle;
+    var sweep = endAngle - startAngle;
     if (isLeftTurn) {
       // For left turn, we want a positive angle
-      if (angleDiff < 0) angleDiff += 2 * pi;
+      if (sweep < 0) sweep += 2 * pi;
     } else {
       // For right turn, we want a negative angle
-      if (angleDiff > 0) angleDiff -= 2 * pi;
+      if (sweep > 0) sweep -= 2 * pi;
     }
 
     if (isLeftTurn) {
       // Add arc points on the outer (left) side
       for (int i = 0; i <= steps; i++) {
         final t = i / steps;
-        final angle = startAngle + angleDiff * t;
+        final angle = startAngle + sweep * t;
         final offset = Point(cos(angle), sin(angle)) * halfWidth;
         left.add(p - offset); // Negative because left side
       }
       // Straight connection on the right
-      right.add(p + nIn * halfWidth);
-      right.add(p + nOut * halfWidth);
+      right.add(p + normalIn * halfWidth);
+      right.add(p + normalOut * halfWidth);
     } else {
       // Add arc points on the outer (right) side
       for (int i = 0; i <= steps; i++) {
         final t = i / steps;
-        final angle = startAngle + angleDiff * t;
+        final angle = startAngle + sweep * t;
         final offset = Point(cos(angle), sin(angle)) * halfWidth;
         right.add(p + offset);
       }
       // Straight connection on the left
-      left.add(p - nIn * halfWidth);
-      left.add(p - nOut * halfWidth);
+      left.add(p - normalIn * halfWidth);
+      left.add(p - normalOut * halfWidth);
     }
   }
 
-  void _buildStrokeOutline(
+  void _outline(
     PathBuilder builder,
-    List<Point> rightContour,
-    List<Point> leftContour,
-    List<Point> originalPoints,
+    final List<Point> right,
+    final List<Point> left,
+    final List<Point> points,
     GraphicsState state,
     double halfWidth,
-    bool isClosed,
+    final bool closed,
   ) {
-    if (rightContour.isEmpty) return;
+    if (right.isEmpty) return;
 
     // For square caps, we need to modify the contours to include the cap extensions
-    List<Point> modifiedRightContour = List.from(rightContour);
-    List<Point> modifiedLeftContour = List.from(leftContour);
+    List<Point> rightEdge = List.from(right);
+    List<Point> leftEdge = List.from(left);
 
-    if (!isClosed &&
-        state.lineCap == LineCap.square &&
-        originalPoints.length >= 2) {
+    if (!closed && state.lineCap == LineCap.square && points.length >= 2) {
       // Calculate cap extensions
-      final startDir = (originalPoints.first - originalPoints[1]).normalized();
-      final endDir =
-          (originalPoints.last - originalPoints[originalPoints.length - 2])
-              .normalized();
+      final startDirection = (points.first - points[1]).normalized();
+      final endDirection = (points.last - points[points.length - 2])
+          .normalized();
       final extension = halfWidth;
 
       // Extend the contours for square caps
       // Start cap extension
-      final startExtension = startDir * extension;
-      modifiedRightContour.insert(0, rightContour.first + startExtension);
-      modifiedLeftContour.insert(0, leftContour.first + startExtension);
+      final startExtension = startDirection * extension;
+      rightEdge.insert(0, right.first + startExtension);
+      leftEdge.insert(0, left.first + startExtension);
 
       // End cap extension
-      final endExtension = endDir * extension;
-      modifiedRightContour.add(rightContour.last + endExtension);
-      modifiedLeftContour.add(leftContour.last + endExtension);
+      final endExtension = endDirection * extension;
+      rightEdge.add(right.last + endExtension);
+      leftEdge.add(left.last + endExtension);
     }
 
     // Build the path
-    builder.moveTo(modifiedRightContour.first.x, modifiedRightContour.first.y);
-    for (int i = 1; i < modifiedRightContour.length; i++) {
-      builder.lineTo(modifiedRightContour[i].x, modifiedRightContour[i].y);
+    builder.moveTo(rightEdge.first.x, rightEdge.first.y);
+    for (int i = 1; i < rightEdge.length; i++) {
+      builder.lineTo(rightEdge[i].x, rightEdge[i].y);
     }
 
     // Add end cap for round caps only (square is handled by extended contours)
-    if (!isClosed &&
-        state.lineCap == LineCap.round &&
-        originalPoints.length >= 2) {
-      _addEnhancedCap(
-        builder,
-        state,
-        originalPoints.last,
-        originalPoints[originalPoints.length - 2],
-        halfWidth,
-        false,
-      );
+    if (!closed && state.lineCap == LineCap.round && points.length >= 2) {
+      _cap(builder, state, points.last, points[points.length - 2], halfWidth);
     }
 
     // Add left contour in reverse
-    for (int i = modifiedLeftContour.length - 1; i >= 0; i--) {
-      builder.lineTo(modifiedLeftContour[i].x, modifiedLeftContour[i].y);
+    for (int i = leftEdge.length - 1; i >= 0; i--) {
+      builder.lineTo(leftEdge[i].x, leftEdge[i].y);
     }
 
     // Add start cap for round caps only (square is handled by extended contours)
-    if (!isClosed &&
-        state.lineCap == LineCap.round &&
-        originalPoints.length >= 2) {
-      _addEnhancedCap(
-        builder,
-        state,
-        originalPoints.first,
-        originalPoints[1],
-        halfWidth,
-        true,
-      );
+    if (!closed && state.lineCap == LineCap.round && points.length >= 2) {
+      _cap(builder, state, points.first, points[1], halfWidth);
     }
 
-    builder.close();
+    builder.closePath();
   }
 
-  void _addEnhancedCap(
+  void _cap(
     PathBuilder builder,
     GraphicsState state,
-    Point endPoint,
-    Point otherPoint,
+    final Point end,
+    final Point other,
     // For start cap: next point; for end cap: previous point
     double halfWidth,
-    bool isStart,
   ) {
     // Direction should point AWAY from the line for cap extension
     // For start cap: point backwards (away from next point)
     // For end cap: point forwards (away from previous point)
-    final direction = (endPoint - otherPoint).normalized();
-    final normal = _getNormal(direction);
+    final direction = (end - other).normalized();
+    final normal = _normal(direction);
 
     switch (state.lineCap) {
       case LineCap.butt:
@@ -514,88 +463,88 @@ class Stroker {
         break;
 
       case LineCap.round:
-        // Add semicircular arc
-        // For end cap: start from right edge, sweep to left edge
-        // For start cap: start from left edge, sweep to right edge
-        final startAngle = isStart
-            ? atan2(-normal.y, -normal.x) // Start from left edge
-            : atan2(normal.y, normal.x); // Start from right edge
-
-        // Always sweep by pi radians (180 degrees)
-        final sweepAngle = isStart ? pi : -pi;
+        // Add semicircular arc from the contour the outline has just
+        // followed, through the tip, to the other contour. [direction]
+        // points out of the line at either end, so the same angles give
+        // both caps the winding of the body.
+        final startAngle = atan2(normal.y, normal.x);
+        final sweep = -pi;
 
         // Add arc points
         final steps = max(4, (halfWidth).ceil());
         for (int i = 0; i <= steps; i++) {
           final t = i / steps;
-          final angle = startAngle + sweepAngle * t;
+          final angle = startAngle + sweep * t;
           final offset = Point(cos(angle), sin(angle)) * halfWidth;
-          final point = endPoint + offset;
+          final point = end + offset;
           builder.lineTo(point.x, point.y);
         }
         break;
     }
   }
 
-  Point _getNormal(Point vector) {
+  Point _normal(Point vector) {
     return Point(-vector.y, vector.x);
   }
 
-  double _clampMiterLimit(double miterLimit) {
-    return miterLimit.clamp(minMiterLimit, maxMiterLimit);
+  double _clamp(final double limit) {
+    return limit.clamp(minMiterLimit, maxMiterLimit);
   }
 
   // Enhanced curve flattening with adaptive subdivision
-  List<List<Point>> _flattenPath(Path path) {
-    final subPaths = <List<Point>>[];
-    if (path.commands.isEmpty) return subPaths;
+  List<List<Point>> _flatten(Path path) {
+    final subpaths = <List<Point>>[];
+    if (path.commands.isEmpty) return subpaths;
 
-    List<Point> currentPoints = [];
-    Point? currentPos;
+    List<Point> points = [];
+    Point? current;
 
-    for (final cmd in path.commands) {
-      if (cmd.type == PathCommandType.moveTo) {
-        if (currentPoints.isNotEmpty) subPaths.add(currentPoints);
-        currentPos = cmd.points.first;
-        currentPoints = [currentPos];
-      } else if (currentPos != null) {
-        if (cmd.type == PathCommandType.lineTo) {
-          currentPos = cmd.points.first;
+    for (final command in path.commands) {
+      if (command.type == PathCommandType.moveTo) {
+        if (points.isNotEmpty) subpaths.add(points);
+        current = command.points.first;
+        points = [current];
+      } else if (current != null) {
+        if (command.type == PathCommandType.lineTo) {
+          current = command.points.first;
           // Skip zero-length segments
-          if ((currentPos - currentPoints.last).length2 >
+          if ((current - points.last).length2 >
               MathUtils.geometricEpsilon * MathUtils.geometricEpsilon) {
-            currentPoints.add(currentPos);
+            points.add(current);
           }
-        } else if (cmd.type == PathCommandType.cubicCurveTo) {
-          final p1 = cmd.points[0], p2 = cmd.points[1], p3 = cmd.points[2];
-          final curvePoints = CurveUtils.flattenCubicBezier(
-            currentPos,
+        } else if (command.type == PathCommandType.cubicCurveTo) {
+          final p1 = command.points[0],
+              p2 = command.points[1],
+              p3 = command.points[2];
+          final flattened = CurveUtils.flattenCubicBezier(
+            current,
             p1,
             p2,
             p3,
             tolerance: MathUtils.curveTolerance,
             maxDepth: 16,
           );
-          currentPoints.addAll(curvePoints.skip(1));
-          currentPos = p3;
-        } else if (cmd.type == PathCommandType.arc && cmd is ArcCommand) {
-          final arcPoints = CurveUtils.flattenArc(currentPos, cmd);
-          currentPoints.addAll(arcPoints.skip(1));
-          currentPos = arcPoints.last;
-        } else if (cmd.type == PathCommandType.ellipse &&
-            cmd is EllipseCommand) {
-          final ellipsePoints = CurveUtils.flattenEllipse(currentPos, cmd);
-          currentPoints.addAll(ellipsePoints.skip(1));
-          currentPos = ellipsePoints.last;
-        } else if (cmd.type == PathCommandType.close) {
-          if (currentPoints.length > 1) {
-            currentPoints.add(currentPoints.first); // Ensure closed
+          points.addAll(flattened.skip(1));
+          current = p3;
+        } else if (command.type == PathCommandType.arc &&
+            command is ArcCommand) {
+          final flattened = CurveUtils.flattenArc(current, command);
+          points.addAll(flattened.skip(1));
+          current = flattened.last;
+        } else if (command.type == PathCommandType.ellipse &&
+            command is EllipseCommand) {
+          final flattened = CurveUtils.flattenEllipse(current, command);
+          points.addAll(flattened.skip(1));
+          current = flattened.last;
+        } else if (command.type == PathCommandType.close) {
+          if (points.length > 1) {
+            points.add(points.first); // Ensure closed
           }
         }
       }
     }
 
-    if (currentPoints.isNotEmpty) subPaths.add(currentPoints);
-    return subPaths;
+    if (points.isNotEmpty) subpaths.add(points);
+    return subpaths;
   }
 }

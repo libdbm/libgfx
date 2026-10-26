@@ -1,16 +1,14 @@
 import 'dart:math' as math;
 
 import 'package:libgfx/io/local_file_system.dart';
-import 'package:libgfx/src/color/color.dart';
-import 'package:libgfx/src/graphics_engine_facade.dart';
-import 'package:libgfx/src/graphics_state.dart';
-import 'package:libgfx/src/paint.dart';
-import 'package:libgfx/src/paths/path.dart';
-import 'package:libgfx/src/point.dart';
+import 'package:libgfx/libgfx.dart';
 
 Future<void> main() async {
   const filesystem = LocalGraphicsFileSystem();
-  final engine = GraphicsEngine(1200, 800, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+  // page units
+  final engine = GraphicsEngine(2 * 1200, 2 * 800, filesystem: filesystem)
+    ..scale(2, 2);
 
   // Set background
   engine.clear(const Color(0xFF1a1a1a));
@@ -18,7 +16,7 @@ Future<void> main() async {
   // Draw blend mode grid
   drawBlendModeGrid(engine);
 
-  await engine.saveToFile('output/blend_modes_demo.ppm');
+  await engine.write('output/blend_modes_demo.ppm');
   print('Saved output/blend_modes_demo.ppm');
 }
 
@@ -86,16 +84,14 @@ void drawBlendModeCell(
 
   // Draw destination shape (blue circle with gradient)
   engine.save();
-  engine.setFillPaint(
-    RadialGradient(
-      center: Point(x + size * 0.4, y + size * 0.6),
-      radius: size * 0.35,
-      stops: [
-        ColorStop(0.0, const Color(0xFF0080FF)),
-        ColorStop(0.7, const Color(0xFF0040AA)),
-        ColorStop(1.0, const Color(0xFF002055)),
-      ],
-    ),
+  engine.fillStyle = RadialGradient(
+    center: Point(x + size * 0.4, y + size * 0.6),
+    radius: size * 0.35,
+    stops: [
+      ColorStop(0.0, const Color(0xFF0080FF)),
+      ColorStop(0.7, const Color(0xFF0040AA)),
+      ColorStop(1.0, const Color(0xFF002055)),
+    ],
   );
   final destCircle = createCircle(x + size * 0.4, y + size * 0.6, size * 0.35);
   engine.fill(destCircle);
@@ -103,17 +99,15 @@ void drawBlendModeCell(
 
   // Draw source shape (red/yellow gradient square) with blend mode
   engine.save();
-  engine.setGlobalCompositeOperation(mode);
-  engine.setFillPaint(
-    LinearGradient(
-      startPoint: Point(x + size * 0.3, y + size * 0.2),
-      endPoint: Point(x + size * 0.8, y + size * 0.7),
-      stops: [
-        ColorStop(0.0, const Color(0xFFFF8800)),
-        ColorStop(0.5, const Color(0xFFFFFF00)),
-        ColorStop(1.0, const Color(0xFFFF0000)),
-      ],
-    ),
+  engine.globalCompositeOperation = mode;
+  engine.fillStyle = LinearGradient(
+    start: Point(x + size * 0.3, y + size * 0.2),
+    end: Point(x + size * 0.8, y + size * 0.7),
+    stops: [
+      ColorStop(0.0, const Color(0xFFFF8800)),
+      ColorStop(0.5, const Color(0xFFFFFF00)),
+      ColorStop(1.0, const Color(0xFFFF0000)),
+    ],
   );
   final srcRect = createRect(
     x + size * 0.3,
@@ -125,12 +119,12 @@ void drawBlendModeCell(
   engine.restore();
 
   // Draw border
-  engine.setStrokeColor(const Color(0xFF444444));
-  engine.setLineWidth(1);
+  engine.strokeStyle = const Color(0xFF444444);
+  engine.lineWidth = 1;
   engine.stroke(cellRect);
 
   // Draw mode name label background
-  engine.setFillColor(const Color(0xCC000000));
+  engine.fillStyle = const Color(0xCC000000);
   final labelBg = createRect(x, y + size - 20, size, 20);
   engine.fill(labelBg);
 
@@ -151,9 +145,9 @@ void drawBackgroundPattern(
   for (int row = 0; row < checks; row++) {
     for (int col = 0; col < checks; col++) {
       if ((row + col) % 2 == 0) {
-        engine.setFillColor(const Color(0xFF2a2a2a));
+        engine.fillStyle = const Color(0xFF2a2a2a);
       } else {
-        engine.setFillColor(const Color(0xFF252525));
+        engine.fillStyle = const Color(0xFF252525);
       }
 
       final checkX = x + col * checkSize;
@@ -171,7 +165,7 @@ Path createRect(double x, double y, double width, double height) {
     ..lineTo(x + width, y)
     ..lineTo(x + width, y + height)
     ..lineTo(x, y + height)
-    ..close();
+    ..closePath();
   return builder.build();
 }
 

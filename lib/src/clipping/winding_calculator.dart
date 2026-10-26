@@ -5,63 +5,59 @@ import '../utils/math_utils.dart';
 /// Calculates winding numbers for point-in-path tests
 class WindingCalculator {
   /// Calculate winding number for a point relative to a path
-  static int calculateWindingNumber(Point testPoint, Path path) {
+  static int calculateWindingNumber(final Point point, Path path) {
     int winding = 0;
-    Point? lastPoint;
-    Point? firstPoint;
+    Point? last;
+    Point? first;
 
-    for (final cmd in path.commands) {
-      switch (cmd.type) {
+    for (final command in path.commands) {
+      switch (command.type) {
         case PathCommandType.moveTo:
-          firstPoint = cmd.points.first;
-          lastPoint = firstPoint;
+          first = command.points.first;
+          last = first;
           break;
 
         case PathCommandType.lineTo:
-          if (lastPoint != null) {
-            winding += _windingContribution(
-              lastPoint,
-              cmd.points.first,
-              testPoint,
-            );
-            lastPoint = cmd.points.first;
+          if (last != null) {
+            winding += _contribution(last, command.points.first, point);
+            last = command.points.first;
           }
           break;
 
         case PathCommandType.cubicCurveTo:
-          if (lastPoint != null && cmd.points.length >= 3) {
+          if (last != null && command.points.length >= 3) {
             // Approximate cubic curve with line segments
             const int segments = 16;
             for (int i = 0; i < segments; i++) {
               final t1 = i / segments;
               final t2 = (i + 1) / segments;
               final p1 = MathUtils.cubicBezier(
-                lastPoint,
-                cmd.points[0],
-                cmd.points[1],
-                cmd.points[2],
+                last,
+                command.points[0],
+                command.points[1],
+                command.points[2],
                 t1,
               );
               final p2 = MathUtils.cubicBezier(
-                lastPoint,
-                cmd.points[0],
-                cmd.points[1],
-                cmd.points[2],
+                last,
+                command.points[0],
+                command.points[1],
+                command.points[2],
                 t2,
               );
-              winding += _windingContribution(p1, p2, testPoint);
+              winding += _contribution(p1, p2, point);
             }
-            lastPoint = cmd.points[2];
+            last = command.points[2];
           }
           break;
 
         case PathCommandType.arc:
-          if (lastPoint != null) {
-            final arc = cmd as ArcCommand;
-            winding += _arcWindingContribution(arc, lastPoint, testPoint);
+          if (last != null) {
+            final arc = command as ArcCommand;
+            winding += _arc(arc, last, point);
 
             // Update last point to arc end
-            lastPoint = MathUtils.circlePoint(
+            last = MathUtils.circlePoint(
               arc.centerX,
               arc.centerY,
               arc.radius,
@@ -71,16 +67,12 @@ class WindingCalculator {
           break;
 
         case PathCommandType.ellipse:
-          if (lastPoint != null) {
-            final ellipse = cmd as EllipseCommand;
-            winding += _ellipseWindingContribution(
-              ellipse,
-              lastPoint,
-              testPoint,
-            );
+          if (last != null) {
+            final ellipse = command as EllipseCommand;
+            winding += _ellipse(ellipse, last, point);
 
             // Update last point to ellipse end
-            lastPoint = MathUtils.ellipsePoint(
+            last = MathUtils.ellipsePoint(
               ellipse.centerX,
               ellipse.centerY,
               ellipse.radiusX,
@@ -92,9 +84,9 @@ class WindingCalculator {
           break;
 
         case PathCommandType.close:
-          if (lastPoint != null && firstPoint != null) {
-            winding += _windingContribution(lastPoint, firstPoint, testPoint);
-            lastPoint = firstPoint;
+          if (last != null && first != null) {
+            winding += _contribution(last, first, point);
+            last = first;
           }
           break;
       }
@@ -104,7 +96,7 @@ class WindingCalculator {
   }
 
   /// Calculate the winding contribution of a line segment
-  static int _windingContribution(Point p1, Point p2, Point test) {
+  static int _contribution(Point p1, Point p2, Point test) {
     // Check if the segment crosses the ray from test point to the right
     if (p1.y <= test.y) {
       if (p2.y > test.y) {
@@ -131,15 +123,11 @@ class WindingCalculator {
   }
 
   /// Calculate winding contribution for an arc
-  static int _arcWindingContribution(
-    ArcCommand arc,
-    Point lastPoint,
-    Point test,
-  ) {
+  static int _arc(ArcCommand arc, final Point start, Point test) {
     // Approximate arc with line segments
     const int segments = 16;
     int winding = 0;
-    Point prevPoint = lastPoint;
+    Point previous = start;
 
     for (int i = 1; i <= segments; i++) {
       final t = i / segments;
@@ -150,23 +138,19 @@ class WindingCalculator {
         arc.radius,
         angle,
       );
-      winding += _windingContribution(prevPoint, point, test);
-      prevPoint = point;
+      winding += _contribution(previous, point, test);
+      previous = point;
     }
 
     return winding;
   }
 
   /// Calculate winding contribution for an ellipse
-  static int _ellipseWindingContribution(
-    EllipseCommand ellipse,
-    Point lastPoint,
-    Point test,
-  ) {
+  static int _ellipse(EllipseCommand ellipse, final Point start, Point test) {
     // Approximate ellipse with line segments
     const int segments = 16;
     int winding = 0;
-    Point prevPoint = lastPoint;
+    Point previous = start;
 
     for (int i = 1; i <= segments; i++) {
       final t = i / segments;
@@ -180,8 +164,8 @@ class WindingCalculator {
         ellipse.rotation,
         angle,
       );
-      winding += _windingContribution(prevPoint, point, test);
-      prevPoint = point;
+      winding += _contribution(previous, point, test);
+      previous = point;
     }
 
     return winding;

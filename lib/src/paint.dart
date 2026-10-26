@@ -5,6 +5,7 @@ import 'color/color.dart';
 import 'color/color_utils.dart';
 import 'matrix.dart';
 import 'point.dart';
+import 'result.dart';
 import 'utils/math_utils.dart';
 
 enum GradientSpread {
@@ -21,61 +22,53 @@ class ColorStop {
   ColorStop(this.offset, this.color);
 }
 
-/// Abstract base class for all paint types (solid colors, gradients, patterns)
+/// Abstract base class for all paint types; a [Color] paints itself
+/// everywhere, gradients and patterns vary with position
 abstract class Paint {
-  Color getColorAt(Point point, Matrix2D inverseTransform);
+  /// The color at [point], given the inverse of the current transform
+  Color sample(Point point, Matrix2D inverse);
 }
 
-/// Solid color paint that applies a uniform color to all pixels
-class SolidPaint extends Paint {
-  final Color color;
-
-  SolidPaint(this.color);
-
-  @override
-  Color getColorAt(Point point, Matrix2D inverseTransform) => color;
-}
-
-/// Base class for gradient paints with shared functionality
+/// Base class for gradient paints with shared functionality. Gradients are
+/// immutable: [addColorStop] returns a new gradient.
 abstract class GradientPaint extends Paint {
+  /// The color stops, sorted by offset, with offsets clamped to 0..1 (a
+  /// non-finite offset becomes 0). Stops at the same offset keep their order.
   final List<ColorStop> stops;
   final GradientSpread spread;
 
-  GradientPaint({required this.stops, this.spread = GradientSpread.pad}) {
-    stops.sort((a, b) => a.offset.compareTo(b.offset));
-  }
+  GradientPaint({
+    required List<ColorStop> stops,
+    this.spread = GradientSpread.pad,
+  }) : stops = _normalize(stops);
 
-  /// Adds a color stop to the gradient while maintaining stop ordering.
-  void addColorStop(double offset, Color color) {
-    final clampedOffset = offset.isFinite ? offset.clamp(0.0, 1.0) : 0.0;
-    stops.add(ColorStop(clampedOffset.toDouble(), color));
-    stops.sort((a, b) => a.offset.compareTo(b.offset));
-  }
+  /// A copy of this gradient with a stop at [offset] added, as W3C canvas
+  /// `addColorStop` adds one in place.
+  GradientPaint addColorStop(final double offset, final Color color) =>
+      _with([...stops, ColorStop(offset, color)]);
 
-  /// Replaces the gradient's stops with [newStops], normalizing offsets.
-  void setColorStops(Iterable<ColorStop> newStops) {
-    stops
-      ..clear()
-      ..addAll(
-        newStops.map(
-          (stop) => ColorStop(
-            stop.offset.isFinite
-                ? stop.offset.clamp(0.0, 1.0)
-                : 0.0,
-            stop.color,
-          ),
+  /// A copy of this gradient with [stops] in place of its own.
+  GradientPaint _with(final List<ColorStop> stops);
+
+  static List<ColorStop> _normalize(final Iterable<ColorStop> stops) {
+    final clamped = [
+      for (final stop in stops)
+        ColorStop(
+          stop.offset.isFinite ? stop.offset.clamp(0.0, 1.0) : 0.0,
+          stop.color,
         ),
-      );
-    stops.sort((a, b) => a.offset.compareTo(b.offset));
-  }
-
-  /// Removes all color stops from the gradient.
-  void clearColorStops() {
-    stops.clear();
+    ];
+    // List.sort is not stable, so break ties by position
+    final order = List.generate(clamped.length, (index) => index)
+      ..sort((a, b) {
+        final compared = clamped[a].offset.compareTo(clamped[b].offset);
+        return compared != 0 ? compared : a.compareTo(b);
+      });
+    return List.unmodifiable([for (final index in order) clamped[index]]);
   }
 
   /// Apply spread method to gradient parameter
-  double applySpread(double t) {
+  double wrap(double t) {
     switch (spread) {
       case GradientSpread.pad:
         return t.clamp(0.0, 1.0);
@@ -97,26 +90,36 @@ abstract class GradientPaint extends Paint {
   }
 
   /// Get interpolated color at normalized offset
-  Color getColorAtOffset(double t) {
+  Color lookup(double t) {
     if (stops.isEmpty) return const Color(0x00000000);
     if (t <= stops.first.offset) return stops.first.color;
     if (t >= stops.last.offset) return stops.last.color;
 
-    for (int i = 0; i < stops.length - 1; i++) {
-      if (t >= stops[i].offset && t <= stops[i + 1].offset) {
-        final s1 = stops[i];
-        final s2 = stops[i + 1];
-        final localT = (t - s1.offset) / (s2.offset - s1.offset);
-        return ColorUtils.lerpRgb(s1.color, s2.color, localT);
+    // A NaN t matches no stop
+    if (t.isNaN) return stops.last.color;
+
+    // Binary search for the first stop at or after t; t lies strictly
+    // after the stop before it, so the pair never has equal offsets
+    int low = 1;
+    int high = stops.length - 1;
+    while (low < high) {
+      final middle = (low + high) >> 1;
+      if (stops[middle].offset >= t) {
+        high = middle;
+      } else {
+        low = middle + 1;
       }
     }
-    return stops.last.color;
+    final before = stops[low - 1];
+    final after = stops[low];
+    final fraction = (t - before.offset) / (after.offset - before.offset);
+    return ColorUtils.lerp(before.color, after.color, fraction);
   }
 }
 
 class LinearGradient extends GradientPaint {
-  final Point startPoint;
-  final Point endPoint;
+  final Point start;
+  final Point end;
 
   // Cached gradient vector components
   late final double _dx;
@@ -124,42 +127,50 @@ class LinearGradient extends GradientPaint {
   late final double _lengthSquared;
 
   LinearGradient({
-    required this.startPoint,
-    required this.endPoint,
+    required this.start,
+    required this.end,
     required List<ColorStop> stops,
     GradientSpread spread = GradientSpread.pad,
   }) : super(stops: stops, spread: spread) {
-    _dx = endPoint.x - startPoint.x;
-    _dy = endPoint.y - startPoint.y;
+    _dx = end.x - start.x;
+    _dy = end.y - start.y;
     _lengthSquared = _dx * _dx + _dy * _dy;
   }
 
   @override
-  Color getColorAt(Point point, Matrix2D inverse) {
+  LinearGradient addColorStop(final double offset, final Color color) =>
+      _with([...stops, ColorStop(offset, color)]);
+
+  @override
+  LinearGradient _with(final List<ColorStop> stops) =>
+      LinearGradient(start: start, end: end, stops: stops, spread: spread);
+
+  @override
+  Color sample(Point point, Matrix2D inverse) {
     // Inline transform: point -> user space
     final ux = inverse.a * point.x + inverse.c * point.y + inverse.tx;
     final uy = inverse.b * point.x + inverse.d * point.y + inverse.ty;
 
     // Inline dot product and projection
-    final px = ux - startPoint.x;
-    final py = uy - startPoint.y;
-    double t = (px * _dx + py * _dy) / _lengthSquared;
+    final dx = ux - start.x;
+    final dy = uy - start.y;
+    double t = (dx * _dx + dy * _dy) / _lengthSquared;
 
-    t = applySpread(t);
-    return getColorAtOffset(t);
+    t = wrap(t);
+    return lookup(t);
   }
 
   /// Get gradient parameter t at specific coordinates (for incremental sampling)
-  double getTAt(double x, double y, Matrix2D inverse) {
+  double offset(double x, double y, Matrix2D inverse) {
     final ux = inverse.a * x + inverse.c * y + inverse.tx;
     final uy = inverse.b * x + inverse.d * y + inverse.ty;
-    final px = ux - startPoint.x;
-    final py = uy - startPoint.y;
-    return (px * _dx + py * _dy) / _lengthSquared;
+    final dx = ux - start.x;
+    final dy = uy - start.y;
+    return (dx * _dx + dy * _dy) / _lengthSquared;
   }
 
   /// Get delta of t when moving one pixel to the right (for scanline rendering)
-  double getTDeltaX(Matrix2D inverse) {
+  double step(Matrix2D inverse) {
     // When x increases by 1, user space changes by (inverse.a, inverse.b)
     return (inverse.a * _dx + inverse.b * _dy) / _lengthSquared;
   }
@@ -186,7 +197,20 @@ class RadialGradient extends GradientPaint {
   }
 
   @override
-  Color getColorAt(Point point, Matrix2D inverse) {
+  RadialGradient addColorStop(final double offset, final Color color) =>
+      _with([...stops, ColorStop(offset, color)]);
+
+  @override
+  RadialGradient _with(final List<ColorStop> stops) => RadialGradient(
+    center: center,
+    radius: radius,
+    stops: stops,
+    spread: spread,
+    focal: focal,
+  );
+
+  @override
+  Color sample(Point point, Matrix2D inverse) {
     // Inline transform
     final ux = inverse.a * point.x + inverse.c * point.y + inverse.tx;
     final uy = inverse.b * point.x + inverse.d * point.y + inverse.ty;
@@ -197,8 +221,8 @@ class RadialGradient extends GradientPaint {
     final distance = math.sqrt(dx * dx + dy * dy);
     double t = distance / radius;
 
-    t = applySpread(t);
-    return getColorAtOffset(t);
+    t = wrap(t);
+    return lookup(t);
   }
 }
 
@@ -215,7 +239,19 @@ class ConicalGradient extends GradientPaint {
   }) : super(stops: stops, spread: spread);
 
   @override
-  Color getColorAt(Point point, Matrix2D inverse) {
+  ConicalGradient addColorStop(final double offset, final Color color) =>
+      _with([...stops, ColorStop(offset, color)]);
+
+  @override
+  ConicalGradient _with(final List<ColorStop> stops) => ConicalGradient(
+    center: center,
+    startAngle: startAngle,
+    stops: stops,
+    spread: spread,
+  );
+
+  @override
+  Color sample(Point point, Matrix2D inverse) {
     // Inline transform
     final ux = inverse.a * point.x + inverse.c * point.y + inverse.tx;
     final uy = inverse.b * point.x + inverse.d * point.y + inverse.ty;
@@ -233,8 +269,8 @@ class ConicalGradient extends GradientPaint {
     angle = MathUtils.normalizeAngle(angle);
 
     double t = angle / (2 * math.pi);
-    t = applySpread(t);
-    return getColorAtOffset(t);
+    t = wrap(t);
+    return lookup(t);
   }
 }
 
@@ -248,66 +284,82 @@ enum PatternRepeat {
 
 /// Enhanced pattern paint that supports Bitmap and advanced features
 class PatternPaint extends Paint {
-  final Bitmap pattern;
-  final Matrix2D transform;
+  final Bitmap _pattern;
+  final Matrix2D _transform;
   final PatternRepeat repeat;
   final double opacity;
-  late final Matrix2D _inverseTransform;
 
+  /// Null when [transform] is singular; the pattern then paints nothing.
+  late final Matrix2D? _inverse;
+
+  /// [pattern] and [transform] are copied, so later changes to them do not
+  /// affect this paint.
   PatternPaint({
-    required this.pattern,
+    required Bitmap pattern,
     Matrix2D? transform,
     this.repeat = PatternRepeat.repeat,
     this.opacity = 1.0,
-  }) : transform = transform ?? Matrix2D.identity() {
-    _inverseTransform = Matrix2D.copy(this.transform)..invert();
+  }) : _pattern = pattern.clone(),
+       _transform = transform?.clone() ?? Matrix2D.identity() {
+    _inverse = switch (_transform.inverse()) {
+      Ok(:final value) => value,
+      Err() => null,
+    };
   }
 
+  /// A copy of the pattern bitmap.
+  Bitmap get pattern => _pattern.clone();
+
+  /// A copy of the pattern transform.
+  Matrix2D get transform => _transform.clone();
+
   @override
-  Color getColorAt(Point point, Matrix2D inverseTransform) {
+  Color sample(Point point, Matrix2D inverse) {
     // 1. Convert the device-space pixel `point` back to user-space.
-    final userPoint = inverseTransform.transform(point);
+    final user = inverse.transform(point);
 
     // 2. Transform the user-space point into the pattern's local space.
-    final patternPoint = _inverseTransform.transform(userPoint);
+    final local = _inverse;
+    if (local == null) return Color.transparent;
+    final mapped = local.transform(user);
 
     // 3. Get pattern coordinates based on repeat mode
-    double x = patternPoint.x;
-    double y = patternPoint.y;
+    double x = mapped.x;
+    double y = mapped.y;
 
     switch (repeat) {
       case PatternRepeat.repeat:
         // Wrap both X and Y
-        x = (x % pattern.width + pattern.width) % pattern.width;
-        y = (y % pattern.height + pattern.height) % pattern.height;
+        x = (x % _pattern.width + _pattern.width) % _pattern.width;
+        y = (y % _pattern.height + _pattern.height) % _pattern.height;
         break;
 
       case PatternRepeat.repeatX:
         // Wrap X, clamp Y
-        x = (x % pattern.width + pattern.width) % pattern.width;
-        if (y < 0 || y >= pattern.height) {
+        x = (x % _pattern.width + _pattern.width) % _pattern.width;
+        if (y < 0 || y >= _pattern.height) {
           return Color.transparent;
         }
         break;
 
       case PatternRepeat.repeatY:
         // Wrap Y, clamp X
-        y = (y % pattern.height + pattern.height) % pattern.height;
-        if (x < 0 || x >= pattern.width) {
+        y = (y % _pattern.height + _pattern.height) % _pattern.height;
+        if (x < 0 || x >= _pattern.width) {
           return Color.transparent;
         }
         break;
 
       case PatternRepeat.noRepeat:
         // Clamp both
-        if (x < 0 || x >= pattern.width || y < 0 || y >= pattern.height) {
+        if (x < 0 || x >= _pattern.width || y < 0 || y >= _pattern.height) {
           return Color.transparent;
         }
         break;
     }
 
     // 4. Sample the pattern with bilinear interpolation for smooth results
-    final color = _samplePattern(x, y);
+    final color = _bilinear(x, y);
 
     // 5. Apply opacity if needed
     if (opacity < 1.0) {
@@ -318,22 +370,27 @@ class PatternPaint extends Paint {
     return color;
   }
 
-  Color _samplePattern(double x, double y) {
-    // Use bilinear interpolation for smooth pattern sampling
-    final x0 = x.floor().clamp(0, pattern.width - 1);
-    final x1 = (x0 + 1).clamp(0, pattern.width - 1);
-    final y0 = y.floor().clamp(0, pattern.height - 1);
-    final y1 = (y0 + 1).clamp(0, pattern.height - 1);
+  Color _bilinear(double x, double y) {
+    // Use bilinear interpolation for smooth pattern sampling; texel i has its
+    // centre at i + 0.5, so interpolate between centres
+    final u = x - 0.5;
+    final v = y - 0.5;
+    final left = u.floor();
+    final top = v.floor();
+    final fx = u - left;
+    final fy = v - top;
 
-    final fx = x - x0;
-    final fy = y - y0;
+    final x0 = left.clamp(0, _pattern.width - 1);
+    final x1 = (left + 1).clamp(0, _pattern.width - 1);
+    final y0 = top.clamp(0, _pattern.height - 1);
+    final y1 = (top + 1).clamp(0, _pattern.height - 1);
 
-    final c00 = pattern.getPixel(x0, y0);
-    final c10 = pattern.getPixel(x1, y0);
-    final c01 = pattern.getPixel(x0, y1);
-    final c11 = pattern.getPixel(x1, y1);
+    final c00 = _pattern.pixel(x0, y0);
+    final c10 = _pattern.pixel(x1, y0);
+    final c01 = _pattern.pixel(x0, y1);
+    final c11 = _pattern.pixel(x1, y1);
 
     // Bilinear interpolation
-    return ColorUtils.bilerpColor(c00, c10, c01, c11, fx, fy);
+    return ColorUtils.bilerp(c00, c10, c01, c11, fx, fy);
   }
 }

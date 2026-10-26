@@ -2,21 +2,16 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:libgfx/io/local_file_system.dart';
-import 'package:libgfx/src/image/bitmap.dart';
-import 'package:libgfx/src/color/color.dart';
-import 'package:libgfx/src/fonts/ttf/ttf_font.dart';
-import 'package:libgfx/src/graphics_engine_facade.dart';
-import 'package:libgfx/src/graphics_state.dart';
-import 'package:libgfx/src/image/image_renderer.dart';
-import 'package:libgfx/src/matrix.dart';
-import 'package:libgfx/src/paths/path.dart';
-import 'package:libgfx/src/point.dart';
+import 'package:libgfx/libgfx.dart';
 
 void main() async {
   print('Creating comprehensive image rendering demonstration...');
 
   const filesystem = LocalGraphicsFileSystem();
-  final engine = GraphicsEngine(1600, 2000, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+  // page units
+  final engine = GraphicsEngine(2 * 1600, 2 * 2000, filesystem: filesystem)
+    ..scale(2, 2);
   engine.clear(const Color(0xFFF0F0F0)); // Light gray background
 
   // Load font for labels
@@ -29,10 +24,12 @@ void main() async {
       .toList();
 
   if (fontFiles.isNotEmpty) {
-    font = await TTFFont.loadFromFile(
-      fontFiles.first.path,
-      filesystem: filesystem,
-    );
+    switch (await TTFFont.load(fontFiles.first.path, filesystem: filesystem)) {
+      case Ok(:final value):
+        font = value;
+      case Err(:final error):
+        print('Failed to load ${fontFiles.first.path}: $error');
+    }
   }
 
   // Create various test images
@@ -44,26 +41,26 @@ void main() async {
 
   // Title
   if (font != null) {
-    engine.setFillColor(const Color(0xFF000000));
-    final titlePath = font.getTextPath(
+    engine.fillStyle = const Color(0xFF000000);
+    final titlePath = font.path(
       'Advanced Image Rendering Capabilities',
       50,
       yPos,
       28,
     );
-    engine.fill(titlePath);
+    engine.fill(titlePath, text: true);
   }
   yPos += 60;
 
   // Section 1: Filtering Comparison
   if (font != null) {
-    final sectionPath = font.getTextPath(
+    final sectionPath = font.path(
       '1. Image Filtering Comparison',
       50,
       yPos,
       18,
     );
-    engine.fill(sectionPath);
+    engine.fill(sectionPath, text: true);
   }
   yPos += 40;
 
@@ -74,18 +71,24 @@ void main() async {
     (ImageFilter.bicubic, 'Bicubic'),
   ];
 
-  for (final (_, name) in filterModes) {
+  for (final (filter, name) in filterModes) {
     // Draw original size
     engine.drawImage(checkerboard, xPos, yPos);
 
     // Draw scaled up to show filtering difference
-    // Note: filter parameter not supported in drawImageScaled
-    engine.drawImageScaled(checkerboard, xPos, yPos + 80, 128, 128);
+    engine.drawImage(
+      checkerboard,
+      xPos,
+      yPos + 80,
+      width: 128,
+      height: 128,
+      filter: filter,
+    );
 
     // Label
     if (font != null) {
-      final labelPath = font.getTextPath(name, xPos, yPos + 220, 12);
-      engine.fill(labelPath);
+      final labelPath = font.path(name, xPos, yPos + 220, 12);
+      engine.fill(labelPath, text: true);
     }
 
     xPos += 200;
@@ -95,13 +98,8 @@ void main() async {
 
   // Section 2: Transformations
   if (font != null) {
-    final sectionPath = font.getTextPath(
-      '2. Image Transformations',
-      50,
-      yPos,
-      18,
-    );
-    engine.fill(sectionPath);
+    final sectionPath = font.path('2. Image Transformations', 50, yPos, 18);
+    engine.fill(sectionPath, text: true);
   }
   yPos += 40;
 
@@ -114,7 +112,7 @@ void main() async {
       'Rotate 45°',
       Matrix2D.identity()
         ..translate(xPos + 200 + 50, yPos + 50)
-        ..rotateZ(math.pi / 4)
+        ..rotate(math.pi / 4)
         ..translate(-50, -50),
     ),
     (
@@ -136,7 +134,8 @@ void main() async {
   for (final (name, transform) in transformTests) {
     // Apply transform manually since drawImageTransformed doesn't exist
     engine.save();
-    engine.setTransform(
+    // On top of the page's 2x scale
+    engine.transform(
       transform.a,
       transform.b,
       transform.c,
@@ -150,8 +149,8 @@ void main() async {
     // Label
     if (font != null) {
       final labelX = transform.tx;
-      final labelPath = font.getTextPath(name, labelX, yPos + 120, 12);
-      engine.fill(labelPath);
+      final labelPath = font.path(name, labelX, yPos + 120, 12);
+      engine.fill(labelPath, text: true);
     }
   }
 
@@ -159,13 +158,8 @@ void main() async {
 
   // Section 3: Blending and Opacity
   if (font != null) {
-    final sectionPath = font.getTextPath(
-      '3. Blending and Opacity',
-      50,
-      yPos,
-      18,
-    );
-    engine.fill(sectionPath);
+    final sectionPath = font.path('3. Blending and Opacity', 50, yPos, 18);
+    engine.fill(sectionPath, text: true);
   }
   yPos += 40;
 
@@ -182,19 +176,19 @@ void main() async {
     engine.drawImage(photo, xPos, yPos);
     // Note: opacity parameter not supported, using global alpha instead
     engine.save();
-    engine.setGlobalAlpha(opacity);
-    engine.drawImageScaled(gradient, xPos + 25, yPos + 25, 100, 50);
+    engine.globalAlpha = opacity;
+    engine.drawImage(gradient, xPos + 25, yPos + 25, width: 100, height: 50);
     engine.restore();
 
     // Label
     if (font != null) {
-      final labelPath = font.getTextPath(
+      final labelPath = font.path(
         '${(opacity * 100).toInt()}%',
         xPos + 60,
         yPos + 120,
         12,
       );
-      engine.fill(labelPath);
+      engine.fill(labelPath, text: true);
     }
 
     xPos += 180;
@@ -204,13 +198,8 @@ void main() async {
 
   // Section 4: Image Patterns
   if (font != null) {
-    final sectionPath = font.getTextPath(
-      '4. Tiled Image Patterns',
-      50,
-      yPos,
-      18,
-    );
-    engine.fill(sectionPath);
+    final sectionPath = font.path('4. Tiled Image Patterns', 50, yPos, 18);
+    engine.fill(sectionPath, text: true);
   }
   yPos += 40;
 
@@ -234,12 +223,12 @@ void main() async {
     final x = centerX + 80 * math.cos(angle);
     final y = centerY + 80 * math.sin(angle);
     if (i == 0) {
-      circlePath.addCommand(PathCommand(PathCommandType.moveTo, [Point(x, y)]));
+      circlePath.add(PathCommand(PathCommandType.moveTo, [Point(x, y)]));
     } else {
-      circlePath.addCommand(PathCommand(PathCommandType.lineTo, [Point(x, y)]));
+      circlePath.add(PathCommand(PathCommandType.lineTo, [Point(x, y)]));
     }
   }
-  circlePath.addCommand(PathCommand(PathCommandType.close, []));
+  circlePath.add(PathCommand(PathCommandType.close, []));
   engine.clip(circlePath);
   // Pattern tiling would need to be implemented differently
   engine.drawImage(patternImage, xPos, yPos - 30);
@@ -249,8 +238,8 @@ void main() async {
 
   // Section 5: Blend Modes
   if (font != null) {
-    final sectionPath = font.getTextPath('5. Blend Mode Effects', 50, yPos, 18);
-    engine.fill(sectionPath);
+    final sectionPath = font.path('5. Blend Mode Effects', 50, yPos, 18);
+    engine.fill(sectionPath, text: true);
   }
   yPos += 40;
 
@@ -265,25 +254,25 @@ void main() async {
 
   for (final (mode, name) in blendModes) {
     // Draw base
-    engine.setGlobalCompositeOperation(BlendMode.srcOver);
+    engine.globalCompositeOperation = BlendMode.srcOver;
     engine.drawImage(photo, xPos, yPos);
 
     // Draw overlay with blend mode
-    engine.setGlobalCompositeOperation(mode);
+    engine.globalCompositeOperation = mode;
     // Opacity parameter not supported in drawImage
     engine.drawImage(gradient, xPos, yPos);
 
     // Label
-    engine.setGlobalCompositeOperation(BlendMode.srcOver);
+    engine.globalCompositeOperation = BlendMode.srcOver;
     if (font != null) {
-      final labelPath = font.getTextPath(name, xPos + 50, yPos + 120, 12);
-      engine.fill(labelPath);
+      final labelPath = font.path(name, xPos + 50, yPos + 120, 12);
+      engine.fill(labelPath, text: true);
     }
 
     xPos += 200;
   }
 
-  await engine.saveToFile('output/image_demo.ppm');
+  await engine.write('output/image_demo.ppm');
   print('\nCreated output/image_demo.ppm');
 
   print('\n🎨 Image Rendering Features Summary:');
@@ -324,7 +313,7 @@ Bitmap createCheckerboard(int width, int height) {
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
       final isWhite = ((x ~/ cellSize) + (y ~/ cellSize)) % 2 == 0;
-      image.setPixel(
+      image.plot(
         x,
         y,
         isWhite ? const Color(0xFFFFFFFF) : const Color(0xFF404040),
@@ -343,7 +332,7 @@ Bitmap createGradientImage(int width, int height) {
       final r = (x * 255 ~/ width);
       final g = (y * 255 ~/ height);
       final b = ((x + y) * 255 ~/ (width + height));
-      image.setPixel(x, y, Color.fromRGBA(r, g, b, 255));
+      image.plot(x, y, Color.fromRGBA(r, g, b, 255));
     }
   }
 
@@ -385,7 +374,7 @@ Bitmap createPhotoLikeImage(int width, int height) {
       final ng = (color.green + noise).round().clamp(0, 255);
       final nb = (color.blue + noise).round().clamp(0, 255);
 
-      image.setPixel(x, y, Color.fromRGBA(nr, ng, nb, 255));
+      image.plot(x, y, Color.fromRGBA(nr, ng, nb, 255));
     }
   }
 
@@ -414,7 +403,7 @@ Bitmap createPatternTile(int width, int height) {
         color = const Color(0xFF6495ED); // Cornflower Blue
       }
 
-      image.setPixel(x, y, color);
+      image.plot(x, y, color);
     }
   }
 

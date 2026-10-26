@@ -1,15 +1,14 @@
 import 'dart:math' as math;
 
 import 'package:libgfx/io/local_file_system.dart';
-import 'package:libgfx/src/color/color.dart';
-import 'package:libgfx/src/graphics_engine_facade.dart';
-import 'package:libgfx/src/paint.dart';
-import 'package:libgfx/src/paths/path.dart';
-import 'package:libgfx/src/point.dart';
+import 'package:libgfx/libgfx.dart';
 
 Future<void> main() async {
   const filesystem = LocalGraphicsFileSystem();
-  final engine = GraphicsEngine(900, 600, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+  // page units
+  final engine = GraphicsEngine(2 * 900, 2 * 600, filesystem: filesystem)
+    ..scale(2, 2);
 
   // Set background
   engine.clear(const Color(0xFF2a2a2a));
@@ -31,7 +30,7 @@ Future<void> main() async {
   // Add labels
   addLabels(engine);
 
-  await engine.saveToFile('output/gradient_spread_demo.ppm');
+  await engine.write('output/gradient_spread_demo.ppm');
   print('Saved output/gradient_spread_demo.ppm');
 }
 
@@ -42,13 +41,11 @@ void drawLinearGradientSpreads(GraphicsEngine engine, List<ColorStop> stops) {
 
   // Pad spread (default)
   engine.save();
-  engine.setFillPaint(
-    LinearGradient(
-      startPoint: Point(50, 0),
-      endPoint: Point(150, 0),
-      stops: stops,
-      spread: GradientSpread.pad,
-    ),
+  engine.fillStyle = LinearGradient(
+    start: Point(50, 0),
+    end: Point(150, 0),
+    stops: stops,
+    spread: GradientSpread.pad,
   );
   final padRect = createRect(50, startY, boxWidth, boxHeight);
   engine.fill(padRect);
@@ -56,13 +53,11 @@ void drawLinearGradientSpreads(GraphicsEngine engine, List<ColorStop> stops) {
 
   // Reflect spread
   engine.save();
-  engine.setFillPaint(
-    LinearGradient(
-      startPoint: Point(350, 0),
-      endPoint: Point(450, 0),
-      stops: stops,
-      spread: GradientSpread.reflect,
-    ),
+  engine.fillStyle = LinearGradient(
+    start: Point(350, 0),
+    end: Point(450, 0),
+    stops: stops,
+    spread: GradientSpread.reflect,
   );
   final reflectRect = createRect(325, startY, boxWidth, boxHeight);
   engine.fill(reflectRect);
@@ -70,13 +65,11 @@ void drawLinearGradientSpreads(GraphicsEngine engine, List<ColorStop> stops) {
 
   // Repeat spread
   engine.save();
-  engine.setFillPaint(
-    LinearGradient(
-      startPoint: Point(625, 0),
-      endPoint: Point(725, 0),
-      stops: stops,
-      spread: GradientSpread.repeat,
-    ),
+  engine.fillStyle = LinearGradient(
+    start: Point(625, 0),
+    end: Point(725, 0),
+    stops: stops,
+    spread: GradientSpread.repeat,
   );
   final repeatRect = createRect(600, startY, boxWidth, boxHeight);
   engine.fill(repeatRect);
@@ -89,13 +82,11 @@ void drawRadialGradientSpreads(GraphicsEngine engine, List<ColorStop> stops) {
 
   // Pad spread (default)
   engine.save();
-  engine.setFillPaint(
-    RadialGradient(
-      center: Point(125, startY + 75),
-      radius: 50,
-      stops: stops,
-      spread: GradientSpread.pad,
-    ),
+  engine.fillStyle = RadialGradient(
+    center: Point(125, startY + 75),
+    radius: 50,
+    stops: stops,
+    spread: GradientSpread.pad,
   );
   final padCircle = createRect(50, startY, boxSize, boxSize);
   engine.fill(padCircle);
@@ -103,13 +94,11 @@ void drawRadialGradientSpreads(GraphicsEngine engine, List<ColorStop> stops) {
 
   // Reflect spread
   engine.save();
-  engine.setFillPaint(
-    RadialGradient(
-      center: Point(400, startY + 75),
-      radius: 50,
-      stops: stops,
-      spread: GradientSpread.reflect,
-    ),
+  engine.fillStyle = RadialGradient(
+    center: Point(400, startY + 75),
+    radius: 50,
+    stops: stops,
+    spread: GradientSpread.reflect,
   );
   final reflectCircle = createRect(325, startY, boxSize, boxSize);
   engine.fill(reflectCircle);
@@ -117,13 +106,11 @@ void drawRadialGradientSpreads(GraphicsEngine engine, List<ColorStop> stops) {
 
   // Repeat spread
   engine.save();
-  engine.setFillPaint(
-    RadialGradient(
-      center: Point(675, startY + 75),
-      radius: 50,
-      stops: stops,
-      spread: GradientSpread.repeat,
-    ),
+  engine.fillStyle = RadialGradient(
+    center: Point(675, startY + 75),
+    radius: 50,
+    stops: stops,
+    spread: GradientSpread.repeat,
   );
   final repeatCircle = createRect(600, startY, boxSize, boxSize);
   engine.fill(repeatCircle);
@@ -131,15 +118,13 @@ void drawRadialGradientSpreads(GraphicsEngine engine, List<ColorStop> stops) {
 
   // Focal point radial gradient
   engine.save();
-  engine.setFillPaint(
-    RadialGradient(
-      center: Point(400, 500),
-      focal: Point(380, 480),
-      // Offset focal point
-      radius: 60,
-      stops: stops,
-      spread: GradientSpread.reflect,
-    ),
+  engine.fillStyle = RadialGradient(
+    center: Point(400, 500),
+    focal: Point(380, 480),
+    // Offset focal point
+    radius: 60,
+    stops: stops,
+    spread: GradientSpread.reflect,
   );
   final focalCircle = createCircle(400, 500, 70);
   engine.fill(focalCircle);
@@ -148,8 +133,8 @@ void drawRadialGradientSpreads(GraphicsEngine engine, List<ColorStop> stops) {
 
 void addLabels(GraphicsEngine engine) {
   // Draw borders and labels for clarity
-  engine.setStrokeColor(const Color(0xFF888888));
-  engine.setLineWidth(2);
+  engine.strokeStyle = const Color(0xFF888888);
+  engine.lineWidth = 2;
 
   // Linear gradient labels
   engine.stroke(createRect(50, 50, 250, 150));
@@ -165,7 +150,7 @@ void addLabels(GraphicsEngine engine) {
   engine.stroke(createCircle(400, 500, 70));
 
   // Add small markers to show gradient control points
-  engine.setFillColor(const Color(0xFFFFFFFF));
+  engine.fillStyle = const Color(0xFFFFFFFF);
 
   // Linear gradient control points
   drawMarker(engine, 50, 125);
@@ -191,7 +176,7 @@ Path createRect(double x, double y, double width, double height) {
     ..lineTo(x + width, y)
     ..lineTo(x + width, y + height)
     ..lineTo(x, y + height)
-    ..close();
+    ..closePath();
   return builder.build();
 }
 
@@ -220,6 +205,6 @@ void drawMarker(GraphicsEngine engine, double x, double y) {
     ..lineTo(x + 3, y - 3)
     ..lineTo(x + 3, y + 3)
     ..lineTo(x - 3, y + 3)
-    ..close();
+    ..closePath();
   engine.fill(marker.build());
 }

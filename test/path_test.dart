@@ -32,10 +32,10 @@ void main() {
       expect(path.commands[1].points[0].y, equals(50.0));
     });
 
-    test('cubicCurveTo creates cubic curve command', () {
+    test('bezierCurveTo creates cubic curve command', () {
       final builder = PathBuilder();
       builder.moveTo(0.0, 0.0);
-      builder.curveTo(10.0, 10.0, 20.0, 20.0, 30.0, 30.0);
+      builder.bezierCurveTo(10.0, 10.0, 20.0, 20.0, 30.0, 30.0);
       final path = builder.build();
 
       expect(path.commands.length, equals(2));
@@ -54,7 +54,7 @@ void main() {
       builder.moveTo(0.0, 0.0);
       builder.lineTo(100.0, 0.0);
       builder.lineTo(100.0, 100.0);
-      builder.close();
+      builder.closePath();
       final path = builder.build();
 
       expect(path.commands.length, equals(4));
@@ -67,7 +67,7 @@ void main() {
       builder.lineTo(100.0, 20.0);
       builder.lineTo(100.0, 80.0);
       builder.lineTo(10.0, 80.0);
-      builder.close();
+      builder.closePath();
       final path = builder.build();
 
       final bounds = path.bounds;
@@ -80,7 +80,7 @@ void main() {
     test('path bounds with curves', () {
       final builder = PathBuilder();
       builder.moveTo(0.0, 0.0);
-      builder.curveTo(50.0, -50.0, 150.0, 50.0, 200.0, 0.0);
+      builder.bezierCurveTo(50.0, -50.0, 150.0, 50.0, 200.0, 0.0);
       final path = builder.build();
 
       final bounds = path.bounds;
@@ -139,7 +139,7 @@ void main() {
         ..lineTo(100.0, 0.0)
         ..lineTo(100.0, 50.0)
         ..lineTo(0.0, 50.0)
-        ..close();
+        ..closePath();
 
       final path = builder.build();
       expect(path.commands.length, equals(5));
@@ -156,7 +156,7 @@ void main() {
       builder.lineTo(110.0, 20.0);
       builder.lineTo(110.0, 70.0);
       builder.lineTo(10.0, 70.0);
-      builder.close();
+      builder.closePath();
 
       final path = builder.build();
       expect(path.commands.length, equals(5));
@@ -172,11 +172,11 @@ void main() {
       expect(path.commands[3].points[0].y, equals(70.0));
     });
 
-    test('curveTo creates cubic curve', () {
+    test('bezierCurveTo creates cubic curve', () {
       final builder = PathBuilder();
       builder
         ..moveTo(0.0, 0.0)
-        ..curveTo(20.0, 40.0, 80.0, 40.0, 100.0, 0.0);
+        ..bezierCurveTo(20.0, 40.0, 80.0, 40.0, 100.0, 0.0);
 
       final path = builder.build();
       expect(path.commands.length, equals(2));
@@ -203,7 +203,7 @@ void main() {
         ..moveTo(0.0, 0.0)
         ..lineTo(50.0, 100.0)
         ..lineTo(100.0, 0.0)
-        ..close();
+        ..closePath();
 
       // Second subpath - square
       builder
@@ -211,7 +211,7 @@ void main() {
         ..lineTo(250.0, 0.0)
         ..lineTo(250.0, 100.0)
         ..lineTo(150.0, 100.0)
-        ..close();
+        ..closePath();
 
       final path = builder.build();
       expect(path.commands.length, equals(9)); // 4 for triangle + 5 for square
@@ -254,7 +254,7 @@ void main() {
       builder
         ..lineTo(100.0, 0.0)
         ..lineTo(100.0, 100.0)
-        ..close();
+        ..closePath();
 
       final path = builder.build();
 
@@ -274,6 +274,78 @@ void main() {
       expect(rect.top, equals(20.0));
       expect(rect.right, equals(110.0));
       expect(rect.bottom, equals(70.0));
+    });
+  });
+
+  group('Immutable path internals', () {
+    Path square() =>
+        (PathBuilder()
+              ..moveTo(0, 0)
+              ..lineTo(10, 0)
+              ..lineTo(10, 10)
+              ..closePath())
+            .build();
+
+    test('commands cannot be modified', () {
+      final path = square();
+      final line = PathCommand(PathCommandType.lineTo, [const Point(50, 50)]);
+      expect(() => path.commands.add(line), throwsUnsupportedError);
+      expect(() => path.commands[0] = line, throwsUnsupportedError);
+      expect(() => path.commands.clear(), throwsUnsupportedError);
+    });
+
+    test('points cannot be modified', () {
+      final points = square().commands[1].points;
+      expect(() => points.add(const Point(1, 1)), throwsUnsupportedError);
+      expect(() => points[0] = const Point(1, 1), throwsUnsupportedError);
+    });
+
+    test('a command copies the points it is given', () {
+      final points = [const Point(1, 2)];
+      final command = PathCommand(PathCommandType.lineTo, points);
+      points[0] = const Point(99, 99);
+      points.add(const Point(5, 5));
+      expect(command.points, hasLength(1));
+      expect(command.points[0].x, equals(1));
+    });
+
+    test('points are constant values', () {
+      const point = Point(3, 4);
+      expect([point.x, point.y], equals([3, 4]));
+    });
+
+    test('an empty path has zero bounds', () {
+      final bounds = Path().bounds;
+      expect([
+        bounds.left,
+        bounds.top,
+        bounds.width,
+        bounds.height,
+      ], equals([0, 0, 0, 0]));
+    });
+
+    test('bounds follow every public way of adding commands', () {
+      final path = square();
+      expect(path.bounds.right, equals(10));
+      path.add(PathCommand(PathCommandType.lineTo, [const Point(30, -5)]));
+      expect([path.bounds.right, path.bounds.top], equals([30, -5]));
+      path.addPath(
+        (PathBuilder()
+              ..moveTo(-7, 0)
+              ..lineTo(0, 40))
+            .build(),
+      );
+      expect([path.bounds.left, path.bounds.bottom], equals([-7, 40]));
+    });
+
+    test('a clone and its original change independently', () {
+      final original = square();
+      expect(original.bounds.right, equals(10));
+      final copy = original.clone();
+      copy.add(PathCommand(PathCommandType.lineTo, [const Point(100, 100)]));
+      expect(original.commands, hasLength(4));
+      expect(original.bounds.right, equals(10));
+      expect(copy.bounds.right, equals(100));
     });
   });
 }

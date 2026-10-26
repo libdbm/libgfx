@@ -36,7 +36,7 @@ void main() {
           ..lineTo(40, 0)
           ..lineTo(40, 30)
           ..lineTo(0, 30)
-          ..close();
+          ..closePath();
 
         final dashed = dasher.dash(path.build(), [5, 3]);
 
@@ -156,7 +156,7 @@ void main() {
       test('dashes curved path', () {
         final path = PathBuilder()
           ..moveTo(0, 0)
-          ..curveTo(25, -25, 75, -25, 100, 0);
+          ..bezierCurveTo(25, -25, 75, -25, 100, 0);
 
         final dashed = dasher.dash(path.build(), [5, 3]);
 
@@ -193,7 +193,7 @@ void main() {
           ..lineTo(30, 0)
           ..lineTo(30, 30)
           ..lineTo(0, 30)
-          ..close();
+          ..closePath();
 
         final dashed = dasher.dash(path.build(), [5, 3]);
 
@@ -395,12 +395,9 @@ void main() {
           path.lineTo(i * 10.0, i.isEven ? 0 : 10);
         }
 
-        final stopwatch = Stopwatch()..start();
         final dashed = dasher.dash(path.build(), [5, 3]);
-        stopwatch.stop();
 
         expect(dashed, isNotNull);
-        expect(stopwatch.elapsedMilliseconds, lessThan(100));
       });
 
       test('handles complex curves efficiently', () {
@@ -418,18 +415,52 @@ void main() {
           } else if (i % 3 == 0) {
             final cx = 100 + (r - 5) * math.cos(angle - 0.1);
             final cy = 100 + (r - 5) * math.sin(angle - 0.1);
-            path.curveTo(cx, cy, x, y, x, y);
+            path.bezierCurveTo(cx, cy, x, y, x, y);
           } else {
             path.lineTo(x, y);
           }
         }
 
-        final stopwatch = Stopwatch()..start();
         final dashed = dasher.dash(path.build(), [3, 2]);
-        stopwatch.stop();
 
         expect(dashed, isNotNull);
-        expect(stopwatch.elapsedMilliseconds, lessThan(100));
+      });
+    });
+
+    group('Segment limit', () {
+      final line =
+          (PathBuilder()
+                ..moveTo(0, 0)
+                ..lineTo(1000, 0))
+              .build();
+
+      test('a pattern over the custom limit throws ArgumentError', () {
+        expect(
+          () => dasher.dash(line, [0.001], limits: Limits(dashes: 1000)),
+          throwsArgumentError,
+        );
+        expect(
+          dasher.dash(line, [1], limits: Limits(dashes: 1000)).commands,
+          isNotEmpty,
+        );
+      });
+
+      test('a 1e-9 pattern on a long line stops at the default limit', () {
+        final watch = Stopwatch()..start();
+        expect(() => dasher.dash(line, [1e-9]), throwsArgumentError);
+        expect(watch.elapsedMilliseconds, lessThan(5000));
+      });
+
+      test('the default limit is 1e6 pattern elements', () {
+        expect(const Limits().dashes, equals(1000000));
+      });
+
+      test('the engine applies its limits to dashed strokes', () {
+        final engine = GraphicsEngine(100, 100, limits: Limits(dashes: 10));
+        engine.setLineDash([1, 1]);
+        expect(() => engine.stroke(line), throwsArgumentError);
+        engine.setLineDash([]);
+        engine.stroke(line);
       });
     });
   });

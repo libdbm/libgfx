@@ -3,6 +3,9 @@ import 'dart:typed_data';
 import '../bitmap.dart';
 import '../../color/color.dart';
 import '../image_codec.dart';
+import '../../result.dart';
+import '../../limits.dart';
+import 'pnm_tokenizer.dart';
 
 /// PPM image codec (P6 binary format)
 class P6ImageCodec extends ImageCodec {
@@ -13,41 +16,45 @@ class P6ImageCodec extends ImageCodec {
   }
 
   @override
-  Bitmap decode(Uint8List bytes) {
-    final text = String.fromCharCodes(bytes);
-    final lines = text.split('\n');
+  Result<Bitmap, ErrorDetails> decode(
+    Uint8List bytes, {
+    Limits limits = const Limits(),
+  }) => ImageCodec.guard(() => _decode(bytes, limits));
 
-    if (!lines[0].startsWith('P6')) {
-      throw FormatException('Not a PPM P6 file');
+  Bitmap _decode(Uint8List bytes, Limits limits) {
+    final tokenizer = PnmTokenizer(bytes);
+    final (:width, :height, :maxval) = tokenizer.header('P6', limits);
+    tokenizer.separator();
+
+    // Samples are one byte, or two big-endian bytes when maxval exceeds 255
+    final size = maxval < 256 ? 1 : 2;
+    final start = tokenizer.offset;
+    if (bytes.length - start < width * height * 3 * size) {
+      throw RangeError('PPM pixel data ends early');
     }
 
-    int lineIndex = 1;
-    // Skip comments
-    while (lineIndex < lines.length && lines[lineIndex].startsWith('#')) {
-      lineIndex++;
+    int sample(final int index) {
+      final offset = start + index * size;
+      final value = size == 1
+          ? bytes[offset]
+          : (bytes[offset] << 8) | bytes[offset + 1];
+      return PnmTokenizer.scale(value, maxval);
     }
-
-    // Parse dimensions
-    final dimensions = lines[lineIndex++].split(' ');
-    final width = int.parse(dimensions[0]);
-    final height = int.parse(dimensions[1]);
-
-    // Parse max value (usually 255)
-    lineIndex++; // Skip the max value line
-
-    // Find start of binary data
-    final headerEnd = lines.take(lineIndex).join('\n').length + 1;
-    final pixelData = bytes.sublist(headerEnd);
 
     final image = Bitmap.empty(width, height);
-
     for (int y = 0; y < height; y++) {
       for (int x = 0; x < width; x++) {
-        final offset = (y * width + x) * 3;
-        final r = pixelData[offset];
-        final g = pixelData[offset + 1];
-        final b = pixelData[offset + 2];
-        image.setPixel(x, y, Color.fromRGBA(r, g, b, 255));
+        final index = (y * width + x) * 3;
+        image.plot(
+          x,
+          y,
+          Color.fromRGBA(
+            sample(index),
+            sample(index + 1),
+            sample(index + 2),
+            255,
+          ),
+        );
       }
     }
 
@@ -56,21 +63,21 @@ class P6ImageCodec extends ImageCodec {
 
   @override
   Uint8List encode(Bitmap image) {
-    final header = 'P6\n${image.width} ${image.height}\n255\n';
-    final headerBytes = Uint8List.fromList(header.codeUnits);
+    final text = 'P6\n${image.width} ${image.height}\n255\n';
+    final header = Uint8List.fromList(text.codeUnits);
 
-    final pixelBytes = Uint8List(image.width * image.height * 3);
+    final pixels = Uint8List(image.width * image.height * 3);
     var offset = 0;
 
     for (int y = 0; y < image.height; y++) {
       for (int x = 0; x < image.width; x++) {
-        final color = image.getPixel(x, y);
-        pixelBytes[offset++] = color.red;
-        pixelBytes[offset++] = color.green;
-        pixelBytes[offset++] = color.blue;
+        final color = image.pixel(x, y);
+        pixels[offset++] = color.red;
+        pixels[offset++] = color.green;
+        pixels[offset++] = color.blue;
       }
     }
 
-    return Uint8List.fromList([...headerBytes, ...pixelBytes]);
+    return Uint8List.fromList([...header, ...pixels]);
   }
 }

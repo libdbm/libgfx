@@ -1,13 +1,12 @@
-/// Common text rendering types and enums
-
-/// Text encoding formats
-enum TextEncoding { latin1, utf8, utf16, utf32 }
+/// Common text rendering types and enums.
 
 /// Text rendering operations
 enum TextOperation { fill, stroke, clip, fillAndStroke }
 
-/// Text alignment options
-enum TextAlign { left, right, center, justify }
+/// Text alignment options; [start] and [end] are left and right for
+/// left-to-right text and the reverse for right-to-left text, as in W3C
+/// canvas
+enum TextAlign { start, end, left, right, center, justify }
 
 /// Text baseline options
 enum TextBaseline { alphabetic, top, middle, bottom, ideographic, hanging }

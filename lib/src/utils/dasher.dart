@@ -1,154 +1,168 @@
 import 'dart:math';
 
+import '../limits.dart';
 import '../paths/path.dart';
 import '../point.dart';
 import 'curve_utils.dart';
 
 /// A utility to convert a path into a dashed path by breaking it into segments.
+/// Dashing a path into more than [Limits.dashes] dash and gap pieces throws
+/// [ArgumentError].
 class Dasher {
-  Path dash(Path inputPath, List<double> pattern) {
-    if (pattern.isEmpty || pattern.every((d) => d <= 0)) return inputPath;
+  Path dash(
+    final Path path,
+    List<double> pattern, {
+    final Limits limits = const Limits(),
+  }) {
+    if (pattern.isEmpty || pattern.every((length) => length <= 0)) return path;
 
     final builder = PathBuilder();
-    final subPaths = _splitPath(inputPath);
+    final subpaths = _split(path);
 
-    for (final commands in subPaths) {
-      _dashSubPath(builder, commands, pattern);
+    var budget = limits.dashes;
+    for (final commands in subpaths) {
+      budget = _subpath(builder, commands, pattern, budget, limits);
     }
 
     return builder.build();
   }
 
-  void _dashSubPath(
+  /// Dashes one subpath and returns how many of [budget] pieces remain.
+  int _subpath(
     PathBuilder builder,
     List<PathCommand> commands,
     List<double> pattern,
+    int budget,
+    Limits limits,
   ) {
-    final flattenedPoints = _flattenSubPath(commands);
-    if (flattenedPoints.length < 2) return;
+    final points = _flatten(commands);
+    if (points.length < 2) return budget;
 
-    var patternIndex = 0;
-    var distanceIntoPattern = 0.0;
-    var isPenDown = true;
+    var index = 0;
+    var progress = 0.0;
+    var down = true;
 
-    // NEW STATE: Tracks if we need to start a new line segment
-    var needsMoveTo = true;
+    // Tracks if we need to start a new line segment
+    var fresh = true;
 
-    for (int i = 0; i < flattenedPoints.length - 1; i++) {
-      var p1 = flattenedPoints[i];
-      final p2 = flattenedPoints[i + 1];
+    for (int i = 0; i < points.length - 1; i++) {
+      var p1 = points[i];
+      final p2 = points[i + 1];
 
-      var segmentVector = p2 - p1;
-      var segmentLength = segmentVector.length;
-      if (segmentLength < 1e-9) continue;
+      var vector = p2 - p1;
+      var length = vector.length;
+      if (length < 1e-9) continue;
 
-      final direction = segmentVector * (1.0 / segmentLength);
+      final direction = vector * (1.0 / length);
 
-      while (segmentLength > 0) {
-        final patternLength = pattern[patternIndex % pattern.length];
-        if (patternLength <= 0) {
+      while (length > 0) {
+        if (--budget < 0) {
+          throw ArgumentError.value(
+            pattern,
+            'pattern',
+            'Produces more than ${limits.dashes} dashes and gaps',
+          );
+        }
+        final element = pattern[index % pattern.length];
+        if (element <= 0) {
           // Skip zero-length pattern segments
-          patternIndex++;
+          index++;
           continue;
         }
 
-        final remainingInPattern = patternLength - distanceIntoPattern;
-        final step = min(segmentLength, remainingInPattern);
+        final rest = element - progress;
+        final step = min(length, rest);
 
-        final nextPoint = p1 + direction * step;
+        final next = p1 + direction * step;
 
-        if (isPenDown) {
-          if (needsMoveTo) {
+        if (down) {
+          if (fresh) {
             builder.moveTo(p1.x, p1.y);
-            needsMoveTo = false;
+            fresh = false;
           }
-          builder.lineTo(nextPoint.x, nextPoint.y);
+          builder.lineTo(next.x, next.y);
         }
 
-        p1 = nextPoint;
-        segmentLength -= step;
-        distanceIntoPattern += step;
+        p1 = next;
+        length -= step;
+        progress += step;
 
         // Check if we've completed a pattern element (dash or gap)
-        if (distanceIntoPattern >= patternLength) {
-          distanceIntoPattern = 0;
-          patternIndex++;
-          isPenDown = !isPenDown;
+        if (progress >= element) {
+          progress = 0;
+          index++;
+          down = !down;
           // If the pen is coming up, the next dash will need a new moveTo
-          if (!isPenDown) {
-            needsMoveTo = true;
+          if (!down) {
+            fresh = true;
           }
         }
       }
     }
+    return budget;
   }
 
   /// Flattens an entire subpath into a single list of connected points.
-  List<Point> _flattenSubPath(List<PathCommand> commands) {
+  List<Point> _flatten(List<PathCommand> commands) {
     final points = <Point>[];
     if (commands.isEmpty) return points;
 
-    var currentPoint = commands.first.points.first;
-    points.add(currentPoint);
+    var current = commands.first.points.first;
+    points.add(current);
 
-    for (final cmd in commands) {
-      if (cmd.type == PathCommandType.moveTo) continue;
+    for (final command in commands) {
+      if (command.type == PathCommandType.moveTo) continue;
 
-      if (cmd.type == PathCommandType.lineTo) {
-        currentPoint = cmd.points.first;
-        points.add(currentPoint);
-      } else if (cmd.type == PathCommandType.cubicCurveTo) {
-        final p1 = cmd.points[0];
-        final p2 = cmd.points[1];
-        final p3 = cmd.points[2];
+      if (command.type == PathCommandType.lineTo) {
+        current = command.points.first;
+        points.add(current);
+      } else if (command.type == PathCommandType.cubicCurveTo) {
+        final p1 = command.points[0];
+        final p2 = command.points[1];
+        final p3 = command.points[2];
         points.addAll(
-          CurveUtils.flattenCubicBezier(
-            currentPoint,
-            p1,
-            p2,
-            p3,
-            steps: 30,
-          ).skip(1),
+          CurveUtils.flattenCubicBezier(current, p1, p2, p3, steps: 30).skip(1),
         );
-        currentPoint = p3;
-      } else if (cmd.type == PathCommandType.arc && cmd is ArcCommand) {
-        final arcPoints = CurveUtils.flattenArc(
-          currentPoint,
-          cmd,
+        current = p3;
+      } else if (command.type == PathCommandType.arc && command is ArcCommand) {
+        final flattened = CurveUtils.flattenArc(
+          current,
+          command,
           tolerance: 0.2,
         );
-        points.addAll(arcPoints.skip(1));
-        currentPoint = arcPoints.last;
-      } else if (cmd.type == PathCommandType.ellipse && cmd is EllipseCommand) {
-        final ellipsePoints = CurveUtils.flattenEllipse(
-          currentPoint,
-          cmd,
+        points.addAll(flattened.skip(1));
+        current = flattened.last;
+      } else if (command.type == PathCommandType.ellipse &&
+          command is EllipseCommand) {
+        final flattened = CurveUtils.flattenEllipse(
+          current,
+          command,
           tolerance: 0.2,
         );
-        points.addAll(ellipsePoints.skip(1));
-        currentPoint = ellipsePoints.last;
-      } else if (cmd.type == PathCommandType.close) {
+        points.addAll(flattened.skip(1));
+        current = flattened.last;
+      } else if (command.type == PathCommandType.close) {
         points.add(commands.first.points.first);
       }
     }
     return points;
   }
 
-  List<List<PathCommand>> _splitPath(Path path) {
+  List<List<PathCommand>> _split(Path path) {
     if (path.commands.isEmpty) return [];
-    final subPaths = <List<PathCommand>>[];
-    var currentSubPath = <PathCommand>[];
-    for (final cmd in path.commands) {
-      if (cmd.type == PathCommandType.moveTo) {
-        if (currentSubPath.isNotEmpty) subPaths.add(currentSubPath);
-        currentSubPath = [cmd];
+    final subpaths = <List<PathCommand>>[];
+    var current = <PathCommand>[];
+    for (final command in path.commands) {
+      if (command.type == PathCommandType.moveTo) {
+        if (current.isNotEmpty) subpaths.add(current);
+        current = [command];
       } else {
-        currentSubPath.add(cmd);
+        current.add(command);
       }
     }
-    if (currentSubPath.isNotEmpty) {
-      subPaths.add(currentSubPath);
+    if (current.isNotEmpty) {
+      subpaths.add(current);
     }
-    return subPaths.where((p) => p.isNotEmpty).toList();
+    return subpaths.where((subpath) => subpath.isNotEmpty).toList();
   }
 }

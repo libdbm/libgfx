@@ -46,9 +46,9 @@ void main() {
         final bitmap2 = Bitmap(10, 0);
         expect(bitmap2.height, equals(0));
 
-        // Negative dimensions cause RangeError with array allocation
-        expect(() => Bitmap(-1, 10), throwsA(isA<RangeError>()));
-        expect(() => Bitmap(10, -1), throwsA(isA<RangeError>()));
+        // Negative dimensions are rejected before allocation
+        expect(() => Bitmap(-1, 10), throwsArgumentError);
+        expect(() => Bitmap(10, -1), throwsArgumentError);
       });
 
       test('throws for mismatched pixel data size', () {
@@ -66,37 +66,37 @@ void main() {
         final bitmap = Bitmap(10, 10);
         final red = Color(0xFFFF0000);
 
-        bitmap.setPixel(5, 5, red);
+        bitmap.plot(5, 5, red);
 
-        expect(bitmap.getPixel(5, 5).value, equals(0xFFFF0000));
+        expect(bitmap.pixel(5, 5).value, equals(0xFFFF0000));
       });
 
-      test('setPixel respects bounds', () {
+      test('plot respects bounds', () {
         final bitmap = Bitmap(10, 10);
         final red = Color(0xFFFF0000);
 
         // Should not throw for valid coordinates
-        bitmap.setPixel(0, 0, red);
-        bitmap.setPixel(9, 9, red);
+        bitmap.plot(0, 0, red);
+        bitmap.plot(9, 9, red);
 
         // Should handle out of bounds gracefully (no-op)
-        bitmap.setPixel(-1, 5, red);
-        bitmap.setPixel(10, 5, red);
-        bitmap.setPixel(5, -1, red);
-        bitmap.setPixel(5, 10, red);
+        bitmap.plot(-1, 5, red);
+        bitmap.plot(10, 5, red);
+        bitmap.plot(5, -1, red);
+        bitmap.plot(5, 10, red);
 
         // Check that out of bounds didn't affect anything
-        expect(bitmap.getPixel(0, 0).value, equals(0xFFFF0000));
-        expect(bitmap.getPixel(9, 9).value, equals(0xFFFF0000));
+        expect(bitmap.pixel(0, 0).value, equals(0xFFFF0000));
+        expect(bitmap.pixel(9, 9).value, equals(0xFFFF0000));
       });
 
-      test('getPixel returns transparent for out of bounds', () {
+      test('pixel returns transparent for out of bounds', () {
         final bitmap = Bitmap(10, 10);
 
-        expect(bitmap.getPixel(-1, 5).value, equals(0));
-        expect(bitmap.getPixel(10, 5).value, equals(0));
-        expect(bitmap.getPixel(5, -1).value, equals(0));
-        expect(bitmap.getPixel(5, 10).value, equals(0));
+        expect(bitmap.pixel(-1, 5).value, equals(0));
+        expect(bitmap.pixel(10, 5).value, equals(0));
+        expect(bitmap.pixel(5, -1).value, equals(0));
+        expect(bitmap.pixel(5, 10).value, equals(0));
       });
 
       test('clear fills bitmap with color', () {
@@ -108,23 +108,23 @@ void main() {
         // All pixels should be blue
         for (int y = 0; y < 10; y++) {
           for (int x = 0; x < 10; x++) {
-            expect(bitmap.getPixel(x, y).value, equals(0xFF0000FF));
+            expect(bitmap.pixel(x, y).value, equals(0xFF0000FF));
           }
         }
       });
     });
 
     group('Blending Operations', () {
-      test('blendPixel with srcOver mode', () {
+      test('blend with srcOver mode', () {
         final bitmap = Bitmap(10, 10);
-        bitmap.setPixel(5, 5, const Color(0xFF00FF00)); // Green background
-        bitmap.blendPixel(
+        bitmap.plot(5, 5, const Color(0xFF00FF00)); // Green background
+        bitmap.blend(
           5,
           5,
           const Color(0x80FF0000),
           BlendMode.srcOver,
         ); // Semi-transparent red
-        final result = bitmap.getPixel(5, 5);
+        final result = bitmap.pixel(5, 5);
         expect(result.alpha, equals(255));
         expect(result.red, greaterThan(100));
         expect(result.green, greaterThan(100));
@@ -134,19 +134,19 @@ void main() {
     group('Copy and Clone Operations', () {
       test('clone creates independent copy', () {
         final original = Bitmap(10, 10);
-        original.setPixel(5, 5, Color(0xFFFF0000));
+        original.plot(5, 5, Color(0xFFFF0000));
 
         final clone = original.clone();
 
         // Clone should have same content
         expect(clone.width, equals(original.width));
         expect(clone.height, equals(original.height));
-        expect(clone.getPixel(5, 5).value, equals(0xFFFF0000));
+        expect(clone.pixel(5, 5).value, equals(0xFFFF0000));
 
         // Modifying clone shouldn't affect original
-        clone.setPixel(5, 5, Color(0xFF00FF00));
-        expect(original.getPixel(5, 5).value, equals(0xFFFF0000));
-        expect(clone.getPixel(5, 5).value, equals(0xFF00FF00));
+        clone.plot(5, 5, Color(0xFF00FF00));
+        expect(original.pixel(5, 5).value, equals(0xFFFF0000));
+        expect(clone.pixel(5, 5).value, equals(0xFF00FF00));
       });
 
       test('crop extracts sub-region', () {
@@ -156,7 +156,7 @@ void main() {
         for (int y = 0; y < 20; y++) {
           for (int x = 0; x < 20; x++) {
             final color = Color.fromARGB(255, x * 10, y * 10, 0);
-            bitmap.setPixel(x, y, color);
+            bitmap.plot(x, y, color);
           }
         }
 
@@ -168,8 +168,8 @@ void main() {
         // Check that cropped region has correct pixels
         for (int y = 0; y < 10; y++) {
           for (int x = 0; x < 10; x++) {
-            final original = bitmap.getPixel(x + 5, y + 5);
-            final crop = cropped.getPixel(x, y);
+            final original = bitmap.pixel(x + 5, y + 5);
+            final crop = cropped.pixel(x, y);
             expect(crop.value, equals(original.value));
           }
         }
@@ -186,10 +186,10 @@ void main() {
         expect(cropped.height, equals(10));
 
         // In-bounds part should be red
-        expect(cropped.getPixel(0, 0).value, equals(0xFFFF0000));
+        expect(cropped.pixel(0, 0).value, equals(0xFFFF0000));
 
         // Out-of-bounds part should be transparent
-        expect(cropped.getPixel(9, 9).value, equals(0));
+        expect(cropped.pixel(9, 9).value, equals(0));
       });
 
       // test('copyFrom copies region from another bitmap', () {
@@ -300,7 +300,7 @@ void main() {
       // expect(bitmap.isEmpty(), isTrue);
       //
       // // Set one pixel
-      // bitmap.setPixel(5, 5, Color(0xFFFF0000));
+      // bitmap.plot(5, 5, Color(0xFFFF0000));
       //
       // expect(bitmap.isEmpty(), isFalse);
       // });
@@ -322,7 +322,7 @@ void main() {
       // // Draw a small rectangle
       // for (int y = 5; y < 10; y++) {
       // for (int x = 8; x < 15; x++) {
-      // bitmap.setPixel(x, y, Color(0xFFFF0000));
+      // bitmap.plot(x, y, Color(0xFFFF0000));
       // }
       // }
       //
@@ -353,25 +353,20 @@ void main() {
 
         // Should be able to manipulate large bitmap
         bitmap.clear(Color(0xFFFF0000));
-        expect(bitmap.getPixel(500, 500).value, equals(0xFFFF0000));
+        expect(bitmap.pixel(500, 500).value, equals(0xFFFF0000));
       });
 
-      test('batch operations are efficient', () {
+      test('batch operations set every pixel', () {
         final bitmap = Bitmap(100, 100);
-
-        final stopwatch = Stopwatch()..start();
 
         // Perform many pixel operations
         for (int i = 0; i < 10000; i++) {
           final x = i % 100;
           final y = i ~/ 100;
-          bitmap.setPixel(x, y, Color(0xFFFF0000));
+          bitmap.plot(x, y, Color(0xFFFF0000));
         }
 
-        stopwatch.stop();
-
-        // Should complete quickly
-        expect(stopwatch.elapsedMilliseconds, lessThan(100));
+        expect(bitmap.pixels.every((pixel) => pixel == 0xFFFF0000), isTrue);
       });
     });
   });

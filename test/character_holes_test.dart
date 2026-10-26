@@ -5,14 +5,17 @@ import 'package:libgfx/libgfx.dart';
 import 'package:libgfx/src/graphics_context.dart';
 import 'package:test/test.dart';
 
+import 'support/results.dart';
+
 void main() {
   const filesystem = LocalGraphicsFileSystem();
+  const noto = 'test/fixtures/fonts/NotoSans-Regular.ttf';
 
   group('Character Holes (Counter) Tests', () {
     late List<File> fontFiles;
 
     setUpAll(() async {
-      final fontsDir = Directory('data/fonts');
+      final fontsDir = Directory('test/fixtures/fonts');
       fontFiles = fontsDir
           .listSync()
           .whereType<File>()
@@ -24,10 +27,7 @@ void main() {
 
     test('characters with holes have multiple contours', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(
-          fontFiles.first.path,
-          filesystem: filesystem,
-        );
+        final font = ok(await TTFFont.load(noto, filesystem: filesystem));
 
         // Characters that should have holes (multiple contours)
         final charsWithHoles = [
@@ -53,9 +53,9 @@ void main() {
 
         for (final char in charsWithHoles) {
           final charCode = char.codeUnitAt(0);
-          if (font.hasGlyph(charCode)) {
-            final glyphIndex = font.getGlyphIndex(charCode);
-            final path = font.getGlyphPath(glyphIndex, 48);
+          if (font.covers(charCode)) {
+            final glyphIndex = font.glyph(charCode);
+            final path = font.outline(glyphIndex, 48);
 
             // Count moveTo commands (indicates number of contours)
             var moveToCount = 0;
@@ -78,10 +78,7 @@ void main() {
 
     test('characters without holes have single contours', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(
-          fontFiles.first.path,
-          filesystem: filesystem,
-        );
+        final font = ok(await TTFFont.load(noto, filesystem: filesystem));
 
         // Characters that should NOT have holes (single contours)
         // Note: 'i' and 'j' often have separate contours for dots, so we exclude them
@@ -104,9 +101,9 @@ void main() {
 
         for (final char in charsWithoutHoles) {
           final charCode = char.codeUnitAt(0);
-          if (font.hasGlyph(charCode)) {
-            final glyphIndex = font.getGlyphIndex(charCode);
-            final path = font.getGlyphPath(glyphIndex, 48);
+          if (font.covers(charCode)) {
+            final glyphIndex = font.glyph(charCode);
+            final path = font.outline(glyphIndex, 48);
 
             // Count moveTo commands (indicates number of contours)
             var moveToCount = 0;
@@ -136,18 +133,18 @@ void main() {
       final path = Path();
 
       // Outer rectangle (0,0 to 100,100)
-      path.addCommand(PathCommand(PathCommandType.moveTo, [Point(0, 0)]));
-      path.addCommand(PathCommand(PathCommandType.lineTo, [Point(100, 0)]));
-      path.addCommand(PathCommand(PathCommandType.lineTo, [Point(100, 100)]));
-      path.addCommand(PathCommand(PathCommandType.lineTo, [Point(0, 100)]));
-      path.addCommand(PathCommand(PathCommandType.close, []));
+      path.add(PathCommand(PathCommandType.moveTo, [Point(0, 0)]));
+      path.add(PathCommand(PathCommandType.lineTo, [Point(100, 0)]));
+      path.add(PathCommand(PathCommandType.lineTo, [Point(100, 100)]));
+      path.add(PathCommand(PathCommandType.lineTo, [Point(0, 100)]));
+      path.add(PathCommand(PathCommandType.close, []));
 
       // Inner rectangle (25,25 to 75,75) - should be a hole
-      path.addCommand(PathCommand(PathCommandType.moveTo, [Point(25, 25)]));
-      path.addCommand(PathCommand(PathCommandType.lineTo, [Point(75, 25)]));
-      path.addCommand(PathCommand(PathCommandType.lineTo, [Point(75, 75)]));
-      path.addCommand(PathCommand(PathCommandType.lineTo, [Point(25, 75)]));
-      path.addCommand(PathCommand(PathCommandType.close, []));
+      path.add(PathCommand(PathCommandType.moveTo, [Point(25, 25)]));
+      path.add(PathCommand(PathCommandType.lineTo, [Point(75, 25)]));
+      path.add(PathCommand(PathCommandType.lineTo, [Point(75, 75)]));
+      path.add(PathCommand(PathCommandType.lineTo, [Point(25, 75)]));
+      path.add(PathCommand(PathCommandType.close, []));
 
       final spans = context.rasterizer.rasterize(path);
 
@@ -177,15 +174,12 @@ void main() {
         final engine = GraphicsEngine(200, 100);
         engine.clear(const Color(0xFFFFFFFF)); // White background
 
-        final font = await TTFFont.loadFromFile(
-          fontFiles.first.path,
-          filesystem: filesystem,
-        );
+        final font = ok(await TTFFont.load(noto, filesystem: filesystem));
 
         // Render a character with a hole
         final testText = 'eOaB8';
-        engine.setFillColor(const Color(0xFF000000)); // Black text
-        final textPath = font.getTextPath(testText, 10, 50, 36);
+        engine.fillStyle = const Color(0xFF000000); // Black text
+        final textPath = font.path(testText, 10, 50, 36);
 
         // Should render without errors
         expect(() => engine.fill(textPath), returnsNormally);

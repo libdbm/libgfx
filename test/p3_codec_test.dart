@@ -5,17 +5,19 @@ import 'package:libgfx/src/image/codecs/p3_codec.dart';
 import 'package:libgfx/src/image/codecs/p6_codec.dart';
 import 'package:test/test.dart';
 
+import 'support/results.dart';
+
 void main() {
   group('P3ImageCodec', () {
     test('can encode and decode P3 format', () {
       // Create a small test image
       final bitmap = Bitmap(3, 2);
-      bitmap.setPixel(0, 0, Color.fromRGBA(255, 0, 0, 255)); // Red
-      bitmap.setPixel(1, 0, Color.fromRGBA(0, 255, 0, 255)); // Green
-      bitmap.setPixel(2, 0, Color.fromRGBA(0, 0, 255, 255)); // Blue
-      bitmap.setPixel(0, 1, Color.fromRGBA(255, 255, 0, 255)); // Yellow
-      bitmap.setPixel(1, 1, Color.fromRGBA(255, 0, 255, 255)); // Magenta
-      bitmap.setPixel(2, 1, Color.fromRGBA(0, 255, 255, 255)); // Cyan
+      bitmap.plot(0, 0, Color.fromRGBA(255, 0, 0, 255)); // Red
+      bitmap.plot(1, 0, Color.fromRGBA(0, 255, 0, 255)); // Green
+      bitmap.plot(2, 0, Color.fromRGBA(0, 0, 255, 255)); // Blue
+      bitmap.plot(0, 1, Color.fromRGBA(255, 255, 0, 255)); // Yellow
+      bitmap.plot(1, 1, Color.fromRGBA(255, 0, 255, 255)); // Magenta
+      bitmap.plot(2, 1, Color.fromRGBA(0, 255, 255, 255)); // Cyan
 
       // Encode to P3
       final codec = P3ImageCodec();
@@ -31,22 +33,22 @@ void main() {
       expect(content, contains('0 0 255')); // blue pixel
 
       // Decode back
-      final decoded = codec.decode(encoded);
+      final decoded = ok(codec.decode(encoded));
       expect(decoded.width, 3);
       expect(decoded.height, 2);
 
       // Check pixels
-      expect(decoded.getPixel(0, 0).red, 255);
-      expect(decoded.getPixel(0, 0).green, 0);
-      expect(decoded.getPixel(0, 0).blue, 0);
+      expect(decoded.pixel(0, 0).red, 255);
+      expect(decoded.pixel(0, 0).green, 0);
+      expect(decoded.pixel(0, 0).blue, 0);
 
-      expect(decoded.getPixel(1, 0).red, 0);
-      expect(decoded.getPixel(1, 0).green, 255);
-      expect(decoded.getPixel(1, 0).blue, 0);
+      expect(decoded.pixel(1, 0).red, 0);
+      expect(decoded.pixel(1, 0).green, 255);
+      expect(decoded.pixel(1, 0).blue, 0);
 
-      expect(decoded.getPixel(2, 1).red, 0);
-      expect(decoded.getPixel(2, 1).green, 255);
-      expect(decoded.getPixel(2, 1).blue, 255);
+      expect(decoded.pixel(2, 1).red, 0);
+      expect(decoded.pixel(2, 1).green, 255);
+      expect(decoded.pixel(2, 1).blue, 255);
     });
 
     test('canDecode correctly identifies P3 format', () {
@@ -67,10 +69,10 @@ void main() {
 
     test('P3ImageCodec encode/decode as string', () {
       final bitmap = Bitmap(2, 2);
-      bitmap.setPixel(0, 0, Color.fromRGBA(100, 150, 200, 255));
-      bitmap.setPixel(1, 0, Color.fromRGBA(50, 100, 150, 255));
-      bitmap.setPixel(0, 1, Color.fromRGBA(200, 100, 50, 255));
-      bitmap.setPixel(1, 1, Color.fromRGBA(150, 50, 100, 255));
+      bitmap.plot(0, 0, Color.fromRGBA(100, 150, 200, 255));
+      bitmap.plot(1, 0, Color.fromRGBA(50, 100, 150, 255));
+      bitmap.plot(0, 1, Color.fromRGBA(200, 100, 50, 255));
+      bitmap.plot(1, 1, Color.fromRGBA(150, 50, 100, 255));
 
       // Use P3ImageCodec directly
       final codec = P3ImageCodec();
@@ -79,12 +81,12 @@ void main() {
       expect(encoded, startsWith('P3'));
       expect(encoded, contains('2 2'));
 
-      final decoded = codec.decode(Uint8List.fromList(encoded.codeUnits));
+      final decoded = ok(codec.decode(Uint8List.fromList(encoded.codeUnits)));
       expect(decoded.width, 2);
       expect(decoded.height, 2);
-      expect(decoded.getPixel(0, 0).red, 100);
-      expect(decoded.getPixel(0, 0).green, 150);
-      expect(decoded.getPixel(0, 0).blue, 200);
+      expect(decoded.pixel(0, 0).red, 100);
+      expect(decoded.pixel(0, 0).green, 150);
+      expect(decoded.pixel(0, 0).blue, 200);
     });
 
     test('P3 and P6 codecs produce different formats', () {
@@ -95,7 +97,7 @@ void main() {
           final r = (x * 255 / 9).round();
           final g = (y * 255 / 9).round();
           final b = 128;
-          bitmap.setPixel(x, y, Color.fromRGBA(r, g, b, 255));
+          bitmap.plot(x, y, Color.fromRGBA(r, g, b, 255));
         }
       }
 
@@ -118,17 +120,64 @@ void main() {
       expect(p6Bytes[1], 0x36); // '6'
 
       // Both should decode to the same image
-      final p3Decoded = p3Codec.decode(p3Bytes);
-      final p6Decoded = p6Codec.decode(p6Bytes);
+      final p3Decoded = ok(p3Codec.decode(p3Bytes));
+      final p6Decoded = ok(p6Codec.decode(p6Bytes));
 
       for (int y = 0; y < 10; y++) {
         for (int x = 0; x < 10; x++) {
-          final p3Color = p3Decoded.getPixel(x, y);
-          final p6Color = p6Decoded.getPixel(x, y);
+          final p3Color = p3Decoded.pixel(x, y);
+          final p6Color = p6Decoded.pixel(x, y);
           expect(p3Color.red, p6Color.red);
           expect(p3Color.green, p6Color.green);
           expect(p3Color.blue, p6Color.blue);
         }
+      }
+    });
+  });
+
+  group('P3 header and samples', () {
+    final codec = P3ImageCodec();
+    Result<Bitmap, ErrorDetails> decode(final String text) =>
+        codec.decode(Uint8List.fromList(text.codeUnits));
+
+    test('samples are scaled by maxval', () {
+      final bitmap = ok(decode('P3 2 1 15\n15 15 15 8 0 1\n'));
+      final white = bitmap.pixel(0, 0);
+      expect([white.red, white.green, white.blue], equals([255, 255, 255]));
+      final other = bitmap.pixel(1, 0);
+      expect([other.red, other.green, other.blue], equals([136, 0, 17]));
+    });
+
+    test('tabs, carriage returns and comments anywhere are accepted', () {
+      final bitmap = ok(
+        decode('P3#magic\r\n2\t# width\n1\r255#max\n0 0 255\t255 0 0#end'),
+      );
+      expect(bitmap.pixel(0, 0).blue, equals(255));
+      expect(bitmap.pixel(1, 0).red, equals(255));
+    });
+
+    test('a sample above maxval is malformed', () {
+      err(decode('P3 1 1 15\n16 0 0\n'), ErrorKind.malformed);
+    });
+
+    test('missing samples are truncated', () {
+      err(decode('P3 2 1 255\n1 2 3 4 5\n'), ErrorKind.truncated);
+    });
+
+    test('a missing header field is truncated', () {
+      err(decode('P3 2 1'), ErrorKind.truncated);
+    });
+
+    test('invalid header values are malformed', () {
+      for (final text in [
+        'P3 0 1 255\n',
+        'P3 1 0 255\n',
+        'P3 1 1 0\n',
+        'P3 1 1 65536\n',
+        'P3 x 1 255\n',
+        'P3 1 1 255\n1 -2 3\n',
+      ]) {
+        err(decode(text), ErrorKind.malformed);
       }
     });
   });

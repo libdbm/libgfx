@@ -15,7 +15,7 @@ void main() {
         bitmap.clear(Color.fromARGB(255, 255, 255, 255));
 
         // Set stroke style with butt cap
-        context.state.strokePaint = SolidPaint(Color.fromARGB(255, 0, 0, 0));
+        context.state.strokePaint = Color.fromARGB(255, 0, 0, 0);
         context.state.strokeWidth = 20.0;
         context.state.lineCap = LineCap.butt;
 
@@ -25,12 +25,12 @@ void main() {
 
         // Check that line has been drawn (butt cap)
         // Before line should be white
-        expect(bitmap.getPixel(48, bitmap.height - 1 - 50).red, equals(255));
+        expect(bitmap.pixel(48, bitmap.height - 1 - 50).red, equals(255));
         // Inside line should be black
-        expect(bitmap.getPixel(60, bitmap.height - 1 - 50).red, equals(0));
-        expect(bitmap.getPixel(140, bitmap.height - 1 - 50).red, equals(0));
+        expect(bitmap.pixel(60, bitmap.height - 1 - 50).red, equals(0));
+        expect(bitmap.pixel(140, bitmap.height - 1 - 50).red, equals(0));
         // After line should be white
-        expect(bitmap.getPixel(152, bitmap.height - 1 - 50).red, equals(255));
+        expect(bitmap.pixel(152, bitmap.height - 1 - 50).red, equals(255));
       });
 
       test('round line cap', () {
@@ -41,7 +41,7 @@ void main() {
         bitmap.clear(Color.fromARGB(255, 255, 255, 255));
 
         // Set stroke style with round cap
-        context.state.strokePaint = SolidPaint(Color.fromARGB(255, 0, 0, 0));
+        context.state.strokePaint = Color.fromARGB(255, 0, 0, 0);
         context.state.strokeWidth = 20.0;
         context.state.lineCap = LineCap.round;
 
@@ -52,14 +52,14 @@ void main() {
         // Check that line has round caps (extends past endpoints)
         // Inside the line body
         // With the rasterizer fix, positions are more accurate
-        expect(bitmap.getPixel(100, 50).red, lessThan(255));
+        expect(bitmap.pixel(100, 50).red, lessThan(255));
         // At the approximate cap extension (round caps should extend the line)
         // With the rasterizer fix, cap positions are slightly different
-        expect(bitmap.getPixel(40, bitmap.height - 1 - 50).red, lessThan(255));
-        expect(bitmap.getPixel(155, bitmap.height - 1 - 50).red, lessThan(255));
+        expect(bitmap.pixel(40, bitmap.height - 1 - 50).red, lessThan(255));
+        expect(bitmap.pixel(155, bitmap.height - 1 - 50).red, lessThan(255));
         // Well outside the caps
-        expect(bitmap.getPixel(35, bitmap.height - 1 - 50).red, equals(255));
-        expect(bitmap.getPixel(165, bitmap.height - 1 - 50).red, equals(255));
+        expect(bitmap.pixel(35, bitmap.height - 1 - 50).red, equals(255));
+        expect(bitmap.pixel(165, bitmap.height - 1 - 50).red, equals(255));
       });
 
       test('square line cap', () {
@@ -70,7 +70,7 @@ void main() {
         bitmap.clear(Color.fromARGB(255, 255, 255, 255));
 
         // Set stroke style with square cap
-        context.state.strokePaint = SolidPaint(Color.fromARGB(255, 0, 0, 0));
+        context.state.strokePaint = Color.fromARGB(255, 0, 0, 0);
         context.state.strokeWidth = 20.0;
         context.state.lineCap = LineCap.square;
 
@@ -83,7 +83,7 @@ void main() {
         int blackPixels = 0;
         for (int y = 40; y <= 60; y++) {
           for (int x = 40; x <= 160; x++) {
-            if (bitmap.getPixel(x, bitmap.height - 1 - y).red == 0) {
+            if (bitmap.pixel(x, bitmap.height - 1 - y).red == 0) {
               blackPixels++;
             }
           }
@@ -104,7 +104,7 @@ void main() {
         bitmap.clear(Color.fromARGB(255, 255, 255, 255));
 
         // Set stroke style with miter join
-        context.state.strokePaint = SolidPaint(Color.fromARGB(255, 0, 0, 0));
+        context.state.strokePaint = Color.fromARGB(255, 0, 0, 0);
         context.state.strokeWidth = 20.0;
         context.state.lineJoin = LineJoin.miter;
 
@@ -121,7 +121,7 @@ void main() {
         int blackPixels = 0;
         for (int y = 40; y <= 110; y++) {
           for (int x = 40; x <= 110; x++) {
-            if (bitmap.getPixel(x, bitmap.height - 1 - y).red == 0) {
+            if (bitmap.pixel(x, bitmap.height - 1 - y).red == 0) {
               blackPixels++;
             }
           }
@@ -137,7 +137,7 @@ void main() {
         bitmap.clear(Color.fromARGB(255, 255, 255, 255));
 
         // Set stroke style with round join
-        context.state.strokePaint = SolidPaint(Color.fromARGB(255, 0, 0, 0));
+        context.state.strokePaint = Color.fromARGB(255, 0, 0, 0);
         context.state.strokeWidth = 20.0;
         context.state.lineJoin = LineJoin.round;
 
@@ -154,7 +154,7 @@ void main() {
         int blackPixels = 0;
         for (int y = 40; y <= 110; y++) {
           for (int x = 40; x <= 110; x++) {
-            if (bitmap.getPixel(x, bitmap.height - 1 - y).red == 0) {
+            if (bitmap.pixel(x, bitmap.height - 1 - y).red == 0) {
               blackPixels++;
             }
           }
@@ -170,7 +170,7 @@ void main() {
         bitmap.clear(Color.fromARGB(255, 255, 255, 255));
 
         // Set stroke style with bevel join
-        context.state.strokePaint = SolidPaint(Color.fromARGB(255, 0, 0, 0));
+        context.state.strokePaint = Color.fromARGB(255, 0, 0, 0);
         context.state.strokeWidth = 20.0;
         context.state.lineJoin = LineJoin.bevel;
 
@@ -187,7 +187,7 @@ void main() {
         int blackPixels = 0;
         for (int y = 40; y <= 110; y++) {
           for (int x = 40; x <= 110; x++) {
-            if (bitmap.getPixel(x, bitmap.height - 1 - y).red == 0) {
+            if (bitmap.pixel(x, bitmap.height - 1 - y).red == 0) {
               blackPixels++;
             }
           }
@@ -205,7 +205,7 @@ void main() {
         bitmap.clear(Color.fromARGB(255, 255, 255, 255));
 
         // Set stroke style with dash pattern [on, off]
-        context.state.strokePaint = SolidPaint(Color.fromARGB(255, 0, 0, 0));
+        context.state.strokePaint = Color.fromARGB(255, 0, 0, 0);
         context.state.strokeWidth = 10.0;
         context.state.dashPattern = [20.0, 10.0]; // 20 on, 10 off
 
@@ -216,13 +216,13 @@ void main() {
         // Check dash pattern
         final y = bitmap.height - 1 - 50;
         // First dash should be on
-        expect(bitmap.getPixel(15, y).red, equals(0));
+        expect(bitmap.pixel(15, y).red, equals(0));
         // First gap should be off
-        expect(bitmap.getPixel(35, y).red, equals(255));
+        expect(bitmap.pixel(35, y).red, equals(255));
         // Second dash should be on
-        expect(bitmap.getPixel(45, y).red, equals(0));
+        expect(bitmap.pixel(45, y).red, equals(0));
         // Second gap should be off
-        expect(bitmap.getPixel(65, y).red, equals(255));
+        expect(bitmap.pixel(65, y).red, equals(255));
       });
 
       test('complex dash pattern', () {
@@ -233,7 +233,7 @@ void main() {
         bitmap.clear(Color.fromARGB(255, 255, 255, 255));
 
         // Set stroke style with complex pattern [dash, gap, dot, gap]
-        context.state.strokePaint = SolidPaint(Color.fromARGB(255, 0, 0, 0));
+        context.state.strokePaint = Color.fromARGB(255, 0, 0, 0);
         context.state.strokeWidth = 10.0;
         context.state.dashPattern = [
           30.0,
@@ -249,15 +249,15 @@ void main() {
         // Check complex pattern
         final y = bitmap.height - 1 - 50;
         // First dash (30 pixels)
-        expect(bitmap.getPixel(20, y).red, equals(0));
+        expect(bitmap.pixel(20, y).red, equals(0));
         // First gap (10 pixels)
-        expect(bitmap.getPixel(45, y).red, equals(255));
+        expect(bitmap.pixel(45, y).red, equals(255));
         // Dot (5 pixels)
-        expect(bitmap.getPixel(52, y).red, equals(0));
+        expect(bitmap.pixel(52, y).red, equals(0));
         // Second gap (10 pixels)
-        expect(bitmap.getPixel(62, y).red, equals(255));
+        expect(bitmap.pixel(62, y).red, equals(255));
         // Pattern repeats - second dash
-        expect(bitmap.getPixel(75, y).red, equals(0));
+        expect(bitmap.pixel(75, y).red, equals(0));
       });
 
       test('dashed circle', () {
@@ -268,7 +268,7 @@ void main() {
         bitmap.clear(Color.fromARGB(255, 255, 255, 255));
 
         // Set stroke style with dash pattern
-        context.state.strokePaint = SolidPaint(Color.fromARGB(255, 0, 0, 0));
+        context.state.strokePaint = Color.fromARGB(255, 0, 0, 0);
         context.state.strokeWidth = 5.0;
         context.state.dashPattern = [10.0, 5.0];
 
@@ -281,7 +281,7 @@ void main() {
           final y = 100 + 50 * math.sin(angle);
           pathBuilder.lineTo(x, y);
         }
-        final path = pathBuilder.close().build();
+        final path = pathBuilder.closePath().build();
         context.stroke(path);
 
         // Debug: save the image to check what's being rendered
@@ -293,7 +293,7 @@ void main() {
         int blackPixels = 0;
         for (int y = 0; y < 200; y++) {
           for (int x = 0; x < 200; x++) {
-            final color = bitmap.getPixel(x, y);
+            final color = bitmap.pixel(x, y);
             // Count pixels that are not white (accounting for anti-aliasing)
             if (color.red < 255 || color.green < 255 || color.blue < 255) {
               blackPixels++;
@@ -314,7 +314,7 @@ void main() {
         bitmap.clear(Color.fromARGB(255, 255, 255, 255));
 
         // Set solid red fill
-        context.state.fillPaint = SolidPaint(Color.fromARGB(255, 255, 0, 0));
+        context.state.fillPaint = Color.fromARGB(255, 255, 0, 0);
 
         // Fill rectangle
         final path = PathBuilder()
@@ -322,13 +322,13 @@ void main() {
             .lineTo(80, 20)
             .lineTo(80, 80)
             .lineTo(20, 80)
-            .close()
+            .closePath()
             .build();
         context.fill(path);
 
         // Check center is red (allow for precision differences)
         final centerY = bitmap.height - 1 - 50;
-        final centerColor = bitmap.getPixel(50, centerY);
+        final centerColor = bitmap.pixel(50, centerY);
         expect(centerColor.red, greaterThanOrEqualTo(254));
         expect(centerColor.green, 0);
         expect(centerColor.blue, 0);
@@ -343,8 +343,8 @@ void main() {
 
         // Create linear gradient from red to blue
         final gradient = LinearGradient(
-          startPoint: Point(20, 50),
-          endPoint: Point(80, 50),
+          start: Point(20, 50),
+          end: Point(80, 50),
           stops: [
             ColorStop(0.0, Color.fromARGB(255, 255, 0, 0)),
             ColorStop(1.0, Color.fromARGB(255, 0, 0, 255)),
@@ -358,24 +358,24 @@ void main() {
             .lineTo(80, 20)
             .lineTo(80, 80)
             .lineTo(20, 80)
-            .close()
+            .closePath()
             .build();
         context.fill(path);
 
         // Check gradient colors
         final y = bitmap.height - 1 - 50;
         // Left side should be red
-        final leftColor = bitmap.getPixel(25, y);
+        final leftColor = bitmap.pixel(25, y);
         expect(leftColor.red, greaterThan(200));
         expect(leftColor.blue, lessThan(55));
 
         // Middle should be purple-ish
-        final middleColor = bitmap.getPixel(50, y);
+        final middleColor = bitmap.pixel(50, y);
         expect(middleColor.red, greaterThan(100));
         expect(middleColor.blue, greaterThan(100));
 
         // Right side should be blue
-        final rightColor = bitmap.getPixel(75, y);
+        final rightColor = bitmap.pixel(75, y);
         expect(rightColor.red, lessThan(55));
         expect(rightColor.blue, greaterThan(200));
       });
@@ -404,20 +404,20 @@ void main() {
             .lineTo(90, 10)
             .lineTo(90, 90)
             .lineTo(10, 90)
-            .close()
+            .closePath()
             .build();
         context.fill(path);
 
         // Check radial gradient
         final centerY = bitmap.height - 1 - 50;
         // Center should be white (or close to it)
-        final centerColor = bitmap.getPixel(50, centerY);
+        final centerColor = bitmap.pixel(50, centerY);
         expect(centerColor.red, greaterThan(240));
         expect(centerColor.green, greaterThan(240));
         expect(centerColor.blue, greaterThan(240));
 
         // Edge should be darker
-        final edgeColor = bitmap.getPixel(15, bitmap.height - 1 - 15);
+        final edgeColor = bitmap.pixel(15, bitmap.height - 1 - 15);
         expect(edgeColor.red, lessThan(100));
       });
     });
@@ -430,7 +430,7 @@ void main() {
         // White background
         bitmap.clear(Color.fromARGB(255, 255, 255, 255));
 
-        context.state.strokePaint = SolidPaint(Color.fromARGB(255, 0, 0, 0));
+        context.state.strokePaint = Color.fromARGB(255, 0, 0, 0);
 
         // Draw lines with different widths (skip 1px as it may not render reliably)
         final widths = [3.0, 5.0, 10.0, 20.0];
@@ -446,14 +446,10 @@ void main() {
         // Count black pixels in each line region to verify strokes
         int line1Pixels = 0, line2Pixels = 0, line3Pixels = 0, line4Pixels = 0;
         for (int x = 30; x <= 170; x++) {
-          if (bitmap.getPixel(x, bitmap.height - 1 - 40).red == 0)
-            line1Pixels++;
-          if (bitmap.getPixel(x, bitmap.height - 1 - 80).red == 0)
-            line2Pixels++;
-          if (bitmap.getPixel(x, bitmap.height - 1 - 120).red == 0)
-            line3Pixels++;
-          if (bitmap.getPixel(x, bitmap.height - 1 - 160).red == 0)
-            line4Pixels++;
+          if (bitmap.pixel(x, bitmap.height - 1 - 40).red == 0) line1Pixels++;
+          if (bitmap.pixel(x, bitmap.height - 1 - 80).red == 0) line2Pixels++;
+          if (bitmap.pixel(x, bitmap.height - 1 - 120).red == 0) line3Pixels++;
+          if (bitmap.pixel(x, bitmap.height - 1 - 160).red == 0) line4Pixels++;
         }
         expect(line1Pixels, greaterThan(50)); // 3px line
         expect(line2Pixels, greaterThan(50)); // 5px line
@@ -462,11 +458,11 @@ void main() {
 
         // Areas between lines should be white
         expect(
-          bitmap.getPixel(100, bitmap.height - 1 - 20).red,
+          bitmap.pixel(100, bitmap.height - 1 - 20).red,
           equals(255),
         ); // Above all lines
         expect(
-          bitmap.getPixel(100, bitmap.height - 1 - 60).red,
+          bitmap.pixel(100, bitmap.height - 1 - 60).red,
           equals(255),
         ); // Between 1px and 5px lines
       });
@@ -481,7 +477,7 @@ void main() {
         bitmap.clear(Color.fromARGB(255, 255, 0, 0));
 
         // Draw blue rectangle with source over (default)
-        context.state.fillPaint = SolidPaint(Color.fromARGB(128, 0, 0, 255));
+        context.state.fillPaint = Color.fromARGB(128, 0, 0, 255);
         context.state.blendMode = BlendMode.srcOver;
 
         final path = PathBuilder()
@@ -489,13 +485,13 @@ void main() {
             .lineTo(80, 20)
             .lineTo(80, 80)
             .lineTo(20, 80)
-            .close()
+            .closePath()
             .build();
         context.fill(path);
 
         // Check blended color (semi-transparent blue over red)
         final centerY = bitmap.height - 1 - 50;
-        final blendedColor = bitmap.getPixel(50, centerY);
+        final blendedColor = bitmap.pixel(50, centerY);
         // Should be purple-ish (red + semi-transparent blue)
         expect(blendedColor.red, greaterThan(100));
         expect(blendedColor.blue, greaterThan(100));
@@ -509,9 +505,7 @@ void main() {
         bitmap.clear(Color.fromARGB(255, 128, 128, 128));
 
         // Draw white rectangle with multiply mode
-        context.state.fillPaint = SolidPaint(
-          Color.fromARGB(255, 255, 255, 255),
-        );
+        context.state.fillPaint = Color.fromARGB(255, 255, 255, 255);
         context.state.blendMode = BlendMode.multiply;
 
         final path = PathBuilder()
@@ -519,13 +513,13 @@ void main() {
             .lineTo(80, 20)
             .lineTo(80, 80)
             .lineTo(20, 80)
-            .close()
+            .closePath()
             .build();
         context.fill(path);
 
         // Check multiplied color (white * gray = gray)
         final centerY = bitmap.height - 1 - 50;
-        final multipliedColor = bitmap.getPixel(50, centerY);
+        final multipliedColor = bitmap.pixel(50, centerY);
         // Should still be gray (multiply with white doesn't change color)
         expect(multipliedColor.red, closeTo(128, 1));
         expect(multipliedColor.green, closeTo(128, 1));
@@ -540,9 +534,7 @@ void main() {
         bitmap.clear(Color.fromARGB(255, 64, 64, 64));
 
         // Draw gray rectangle with screen mode
-        context.state.fillPaint = SolidPaint(
-          Color.fromARGB(255, 128, 128, 128),
-        );
+        context.state.fillPaint = Color.fromARGB(255, 128, 128, 128);
         context.state.blendMode = BlendMode.screen;
 
         final path = PathBuilder()
@@ -550,13 +542,13 @@ void main() {
             .lineTo(80, 20)
             .lineTo(80, 80)
             .lineTo(20, 80)
-            .close()
+            .closePath()
             .build();
         context.fill(path);
 
         // Check screened color (should be lighter than both inputs)
         final centerY = bitmap.height - 1 - 50;
-        final screenedColor = bitmap.getPixel(50, centerY);
+        final screenedColor = bitmap.pixel(50, centerY);
         // Screen mode makes colors lighter
         expect(screenedColor.red, greaterThan(128));
         expect(screenedColor.green, greaterThan(128));

@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:meta/meta.dart';
+
 import '../graphics_state.dart';
 import '../matrix.dart';
 import '../point.dart';
@@ -18,11 +20,11 @@ class _NumericalConstants {
 }
 
 /// Edge classification for boolean operations
-const int _EDGE_SUBJECT = 0;
-const int _EDGE_CLIP = 1;
+const int _subject = 0;
+const int _clip = 1;
 
 /// Boolean operation types
-enum _BooleanOp { union, intersection, difference, xor }
+enum _Operation { union, intersection, difference, xor }
 
 /// Edge record for boolean operations
 class _Edge {
@@ -38,17 +40,6 @@ class _Edge {
   double get minX => math.min(start.x, end.x);
   double get maxX => math.max(start.x, end.x);
 
-  /// Get X coordinate at given Y
-  double xAtY(double y) {
-    final dy = end.y - start.y;
-    if (dy.abs() < MathUtils.epsilon) {
-      return start.x; // Horizontal edge
-    }
-    final t = (y - start.y) / dy;
-    final clampedT = t.clamp(0.0, 1.0);
-    return start.x + clampedT * (end.x - start.x);
-  }
-
   /// Check if this edge intersects with another
   Point? intersects(_Edge other) {
     final x1 = start.x, y1 = start.y;
@@ -63,16 +54,16 @@ class _Edge {
     final dy2 = y4 - y3;
 
     // Calculate the denominator
-    final denom = dx1 * dy2 - dy1 * dx2;
+    final denominator = dx1 * dy2 - dy1 * dx2;
 
     // Check for parallel lines
-    if (denom.abs() < MathUtils.epsilon) {
+    if (denominator.abs() < MathUtils.epsilon) {
       return null;
     }
 
     // Calculate intersection parameters
-    final t1 = ((x3 - x1) * dy2 - (y3 - y1) * dx2) / denom;
-    final t2 = ((x3 - x1) * dy1 - (y3 - y1) * dx1) / denom;
+    final t1 = ((x3 - x1) * dy2 - (y3 - y1) * dx2) / denominator;
+    final t2 = ((x3 - x1) * dy1 - (y3 - y1) * dx1) / denominator;
 
     // Check if intersection is within both segments
     if (t1 >= 0 && t1 <= 1 && t2 >= 0 && t2 <= 1) {
@@ -87,173 +78,159 @@ class _Edge {
 class PathOperations {
   /// Transform a path using the given matrix
   static Path transform(Path path, Matrix2D matrix) {
-    final newPath = Path();
+    final result = Path();
 
-    for (final cmd in path.commands) {
-      if (cmd is ArcCommand) {
+    for (final command in path.commands) {
+      if (command is ArcCommand) {
         // Transform arc center (converting to bezier curves handles the transformation)
         // because scaling may turn circles into ellipses
-        _addArcAsBezierCurves(newPath, cmd, matrix);
-      } else if (cmd is EllipseCommand) {
+        _arc(result, command, matrix);
+      } else if (command is EllipseCommand) {
         // Convert ellipse to bezier curves for transformation
-        _addEllipseAsBezierCurves(newPath, cmd, matrix);
+        _ellipse(result, command, matrix);
       } else {
-        final transformedPoints = cmd.points
-            .map((p) => matrix.transform(p))
-            .toList();
-        newPath.addCommand(PathCommand(cmd.type, transformedPoints));
+        final points = command.points.map((p) => matrix.transform(p)).toList();
+        result.add(PathCommand(command.type, points));
       }
     }
 
-    return newPath;
+    return result;
   }
 
-  static void _addArcAsBezierCurves(
-    Path targetPath,
-    ArcCommand arc,
-    Matrix2D matrix,
-  ) {
+  static void _arc(final Path target, ArcCommand arc, Matrix2D matrix) {
     // Convert arc to bezier curves for transformation
-    final sweepAngle = arc.endAngle - arc.startAngle;
-    final absAngle = sweepAngle.abs();
-    final segments = (absAngle / (math.pi / 2)).ceil();
+    final sweep = arc.endAngle - arc.startAngle;
+    final span = sweep.abs();
+    final segments = (span / (math.pi / 2)).ceil();
     if (segments == 0) return;
 
-    final angleStep = sweepAngle / segments;
-    final tangentFactor = (4 / 3) * math.tan(angleStep / 4);
+    final step = sweep / segments;
+    final factor = (4 / 3) * math.tan(step / 4);
 
-    double currentAngle = arc.startAngle;
-    final currentPoint = MathUtils.circlePoint(
+    double angle = arc.startAngle;
+    final start = MathUtils.circlePoint(
       arc.centerX,
       arc.centerY,
       arc.radius,
-      currentAngle,
+      angle,
     );
-    double currentX = currentPoint.x;
-    double currentY = currentPoint.y;
+    double x = start.x;
+    double y = start.y;
 
     // Transform and add the initial move to point
-    if (targetPath.commands.isEmpty) {
-      targetPath.addCommand(
-        PathCommand(PathCommandType.moveTo, [
-          matrix.transform(Point(currentX, currentY)),
-        ]),
+    if (target.commands.isEmpty) {
+      target.add(
+        PathCommand(PathCommandType.moveTo, [matrix.transform(Point(x, y))]),
       );
     }
 
     for (int i = 0; i < segments; i++) {
-      final prevAngle = currentAngle;
-      currentAngle += angleStep;
+      final previous = angle;
+      angle += step;
 
       // Calculate tangent points
-      final prevTanX = -arc.radius * math.sin(prevAngle);
-      final prevTanY = arc.radius * math.cos(prevAngle);
-      final currTanX = -arc.radius * math.sin(currentAngle);
-      final currTanY = arc.radius * math.cos(currentAngle);
+      final tx0 = -arc.radius * math.sin(previous);
+      final ty0 = arc.radius * math.cos(previous);
+      final tx1 = -arc.radius * math.sin(angle);
+      final ty1 = arc.radius * math.cos(angle);
 
       // Calculate control points
-      final cp1x = currentX + tangentFactor * prevTanX;
-      final cp1y = currentY + tangentFactor * prevTanY;
+      final cp1x = x + factor * tx0;
+      final cp1y = y + factor * ty0;
 
-      final newPoint = MathUtils.circlePoint(
+      final next = MathUtils.circlePoint(
         arc.centerX,
         arc.centerY,
         arc.radius,
-        currentAngle,
+        angle,
       );
-      currentX = newPoint.x;
-      currentY = newPoint.y;
+      x = next.x;
+      y = next.y;
 
-      final cp2x = currentX - tangentFactor * currTanX;
-      final cp2y = currentY - tangentFactor * currTanY;
+      final cp2x = x - factor * tx1;
+      final cp2y = y - factor * ty1;
 
       // Transform and add the cubic curve
       final p1 = matrix.transform(Point(cp1x, cp1y));
       final p2 = matrix.transform(Point(cp2x, cp2y));
-      final p3 = matrix.transform(Point(currentX, currentY));
+      final p3 = matrix.transform(Point(x, y));
 
-      targetPath.addCommand(
-        PathCommand(PathCommandType.cubicCurveTo, [p1, p2, p3]),
-      );
+      target.add(PathCommand(PathCommandType.cubicCurveTo, [p1, p2, p3]));
     }
   }
 
-  static void _addEllipseAsBezierCurves(
-    Path targetPath,
+  static void _ellipse(
+    final Path target,
     EllipseCommand ellipse,
     Matrix2D matrix,
   ) {
     // Convert ellipse to bezier curves
-    final sweepAngle = ellipse.endAngle - ellipse.startAngle;
-    final absAngle = sweepAngle.abs();
-    final segments = (absAngle / (math.pi / 2)).ceil();
+    final sweep = ellipse.endAngle - ellipse.startAngle;
+    final span = sweep.abs();
+    final segments = (span / (math.pi / 2)).ceil();
     if (segments == 0) return;
 
-    final angleStep = sweepAngle / segments;
-    final tangentFactor = (4 / 3) * math.tan(angleStep / 4);
+    final step = sweep / segments;
+    final factor = (4 / 3) * math.tan(step / 4);
 
     // Create rotation matrix for the ellipse
     final cos = math.cos(ellipse.rotation);
     final sin = math.sin(ellipse.rotation);
 
-    double currentAngle = ellipse.startAngle;
+    double angle = ellipse.startAngle;
 
     // Calculate initial point on unrotated ellipse
-    double ellipseX = ellipse.radiusX * math.cos(currentAngle);
-    double ellipseY = ellipse.radiusY * math.sin(currentAngle);
+    double ellipseX = ellipse.radiusX * math.cos(angle);
+    double ellipseY = ellipse.radiusY * math.sin(angle);
 
     // Apply rotation
-    double currentX = ellipse.centerX + ellipseX * cos - ellipseY * sin;
-    double currentY = ellipse.centerY + ellipseX * sin + ellipseY * cos;
+    double x = ellipse.centerX + ellipseX * cos - ellipseY * sin;
+    double y = ellipse.centerY + ellipseX * sin + ellipseY * cos;
 
     // Transform and add the initial move to point
-    if (targetPath.commands.isEmpty) {
-      targetPath.addCommand(
-        PathCommand(PathCommandType.moveTo, [
-          matrix.transform(Point(currentX, currentY)),
-        ]),
+    if (target.commands.isEmpty) {
+      target.add(
+        PathCommand(PathCommandType.moveTo, [matrix.transform(Point(x, y))]),
       );
     }
 
     for (int i = 0; i < segments; i++) {
-      final prevAngle = currentAngle;
-      currentAngle += angleStep;
+      final previous = angle;
+      angle += step;
 
       // Calculate tangent points on the ellipse
-      final prevTanX = -ellipse.radiusX * math.sin(prevAngle);
-      final prevTanY = ellipse.radiusY * math.cos(prevAngle);
-      final currTanX = -ellipse.radiusX * math.sin(currentAngle);
-      final currTanY = ellipse.radiusY * math.cos(currentAngle);
+      final tx0 = -ellipse.radiusX * math.sin(previous);
+      final ty0 = ellipse.radiusY * math.cos(previous);
+      final tx1 = -ellipse.radiusX * math.sin(angle);
+      final ty1 = ellipse.radiusY * math.cos(angle);
 
       // Apply rotation to tangent vectors
-      final rotPrevTanX = prevTanX * cos - prevTanY * sin;
-      final rotPrevTanY = prevTanX * sin + prevTanY * cos;
-      final rotCurrTanX = currTanX * cos - currTanY * sin;
-      final rotCurrTanY = currTanX * sin + currTanY * cos;
+      final rx0 = tx0 * cos - ty0 * sin;
+      final ry0 = tx0 * sin + ty0 * cos;
+      final rx1 = tx1 * cos - ty1 * sin;
+      final ry1 = tx1 * sin + ty1 * cos;
 
       // Calculate control points
-      final cp1x = currentX + tangentFactor * rotPrevTanX;
-      final cp1y = currentY + tangentFactor * rotPrevTanY;
+      final cp1x = x + factor * rx0;
+      final cp1y = y + factor * ry0;
 
       // Calculate new position on unrotated ellipse
-      ellipseX = ellipse.radiusX * math.cos(currentAngle);
-      ellipseY = ellipse.radiusY * math.sin(currentAngle);
+      ellipseX = ellipse.radiusX * math.cos(angle);
+      ellipseY = ellipse.radiusY * math.sin(angle);
 
       // Apply rotation
-      currentX = ellipse.centerX + ellipseX * cos - ellipseY * sin;
-      currentY = ellipse.centerY + ellipseX * sin + ellipseY * cos;
+      x = ellipse.centerX + ellipseX * cos - ellipseY * sin;
+      y = ellipse.centerY + ellipseX * sin + ellipseY * cos;
 
-      final cp2x = currentX - tangentFactor * rotCurrTanX;
-      final cp2y = currentY - tangentFactor * rotCurrTanY;
+      final cp2x = x - factor * rx1;
+      final cp2y = y - factor * ry1;
 
       // Transform and add the cubic curve
       final p1 = matrix.transform(Point(cp1x, cp1y));
       final p2 = matrix.transform(Point(cp2x, cp2y));
-      final p3 = matrix.transform(Point(currentX, currentY));
+      final p3 = matrix.transform(Point(x, y));
 
-      targetPath.addCommand(
-        PathCommand(PathCommandType.cubicCurveTo, [p1, p2, p3]),
-      );
+      target.add(PathCommand(PathCommandType.cubicCurveTo, [p1, p2, p3]));
     }
   }
 
@@ -262,166 +239,198 @@ class PathOperations {
     if (path.commands.isEmpty) return Path();
 
     final simplified = Path();
-    final linePoints = <Point>[];
-    Point? lastPoint;
+    final points = <Point>[];
+    Point? last;
 
     // Collect all points from the path in order
-    for (final cmd in path.commands) {
-      if (cmd.type == PathCommandType.moveTo && cmd.points.isNotEmpty) {
+    for (final command in path.commands) {
+      if (command.type == PathCommandType.moveTo && command.points.isNotEmpty) {
         // Process any collected line points first
-        if (linePoints.isNotEmpty) {
-          final simplifiedPoints = _douglasPeucker(linePoints, tolerance);
-          _addSimplifiedPoints(simplified, simplifiedPoints);
-          linePoints.clear();
+        if (points.isNotEmpty) {
+          final reduced = _douglasPeucker(points, tolerance);
+          _append(simplified, reduced);
+          points.clear();
         }
-        linePoints.add(cmd.points[0]);
-        lastPoint = cmd.points[0];
-      } else if (cmd.type == PathCommandType.lineTo && cmd.points.isNotEmpty) {
-        linePoints.add(cmd.points[0]);
-        lastPoint = cmd.points[0];
-      } else if (cmd.type == PathCommandType.cubicCurveTo &&
-          cmd.points.length >= 3) {
+        points.add(command.points[0]);
+        last = command.points[0];
+      } else if (command.type == PathCommandType.lineTo &&
+          command.points.isNotEmpty) {
+        points.add(command.points[0]);
+        last = command.points[0];
+      } else if (command.type == PathCommandType.cubicCurveTo &&
+          command.points.length >= 3) {
         // Flatten cubic curve to line segments
-        if (lastPoint != null) {
+        if (last != null) {
           final flattened = CurveUtils.flattenCubicBezier(
-            lastPoint,
-            cmd.points[0], // control point 1
-            cmd.points[1], // control point 2
-            cmd.points[2], // end point
+            last,
+            command.points[0], // control point 1
+            command.points[1], // control point 2
+            command.points[2], // end point
             tolerance: tolerance,
           );
           // Add flattened points (skip first as it's the current point)
           for (int i = 1; i < flattened.length; i++) {
-            linePoints.add(flattened[i]);
+            points.add(flattened[i]);
           }
-          lastPoint = cmd.points[2];
+          last = command.points[2];
         }
       } else {
         // Process any collected line points and then add this command
-        if (linePoints.isNotEmpty) {
-          final simplifiedPoints = _douglasPeucker(linePoints, tolerance);
-          _addSimplifiedPoints(simplified, simplifiedPoints);
-          linePoints.clear();
+        if (points.isNotEmpty) {
+          final reduced = _douglasPeucker(points, tolerance);
+          _append(simplified, reduced);
+          points.clear();
         }
         // Add the command as-is
-        simplified.addCommand(cmd);
-        if (cmd.points.isNotEmpty) {
-          lastPoint = cmd.points.last;
+        simplified.add(command);
+        if (command.points.isNotEmpty) {
+          last = command.points.last;
         }
       }
     }
 
     // Process any remaining line points
-    if (linePoints.isNotEmpty) {
-      final simplifiedPoints = _douglasPeucker(linePoints, tolerance);
-      _addSimplifiedPoints(simplified, simplifiedPoints);
+    if (points.isNotEmpty) {
+      final reduced = _douglasPeucker(points, tolerance);
+      _append(simplified, reduced);
     }
 
     return simplified;
   }
 
-  /// Douglas-Peucker algorithm implementation
+  /// Douglas-Peucker algorithm implementation. Works on index ranges with
+  /// a flag per kept point; a stack of ranges replaces recursion, so a long
+  /// path cannot overflow the call stack.
   static List<Point> _douglasPeucker(List<Point> points, double tolerance) {
     if (points.length <= 2) {
       return points;
     }
 
-    // Find the point with the maximum distance from the line segment
-    double maxDistance = 0;
-    int maxIndex = 0;
+    final keep = List.filled(points.length, false);
+    keep[0] = true;
+    keep[points.length - 1] = true;
+    final ranges = [(0, points.length - 1)];
 
-    final first = points.first;
-    final last = points.last;
+    while (ranges.isNotEmpty) {
+      final (first, last) = ranges.removeLast();
 
-    for (int i = 1; i < points.length - 1; i++) {
-      final distance = _perpendicularDistance(points[i], first, last);
-      if (distance > maxDistance) {
-        maxDistance = distance;
-        maxIndex = i;
+      // Find the point with the maximum distance from the line segment
+      double maximum = 0;
+      int index = 0;
+      for (int i = first + 1; i < last; i++) {
+        final distance = _distance(points[i], points[first], points[last]);
+        if (distance > maximum) {
+          maximum = distance;
+          index = i;
+        }
+      }
+
+      // Keep it and simplify both sides, or drop everything in between
+      if (maximum > tolerance) {
+        keep[index] = true;
+        ranges
+          ..add((first, index))
+          ..add((index, last));
       }
     }
 
-    // If max distance is greater than tolerance, recursively simplify
-    if (maxDistance > tolerance) {
-      // Recursive call
-      final left = _douglasPeucker(points.sublist(0, maxIndex + 1), tolerance);
-      final right = _douglasPeucker(points.sublist(maxIndex), tolerance);
-
-      // Build the result list
-      final result = <Point>[];
-      result.addAll(left.sublist(0, left.length - 1));
-      result.addAll(right);
-      return result;
-    } else {
-      // All points between can be removed
-      return [first, last];
-    }
+    return [
+      for (int i = 0; i < points.length; i++)
+        if (keep[i]) points[i],
+    ];
   }
 
   /// Calculate perpendicular distance from point to line segment
-  static double _perpendicularDistance(
-    Point point,
-    Point lineStart,
-    Point lineEnd,
-  ) {
-    // Delegate to GeometryUtils for consistent distance calculation
-    return CurveUtils.distanceToSegment(point, lineStart, lineEnd);
+  static double _distance(Point point, final Point start, final Point end) {
+    return CurveUtils.distanceToSegment(point, start, end);
   }
 
   /// Add simplified points to the path
-  static void _addSimplifiedPoints(Path path, List<Point> points) {
+  static void _append(Path path, List<Point> points) {
     if (points.isEmpty) return;
 
-    bool needsMoveTo =
+    bool fresh =
         path.commands.isEmpty ||
         path.commands.last.type == PathCommandType.close;
 
     for (int i = 0; i < points.length; i++) {
-      if (i == 0 && needsMoveTo) {
-        path.addCommand(PathCommand(PathCommandType.moveTo, [points[i]]));
+      if (i == 0 && fresh) {
+        path.add(PathCommand(PathCommandType.moveTo, [points[i]]));
       } else if (i > 0) {
-        path.addCommand(PathCommand(PathCommandType.lineTo, [points[i]]));
+        path.add(PathCommand(PathCommandType.lineTo, [points[i]]));
       }
     }
   }
 
-  /// Compute the union of two paths
-  static Path union(Path path1, Path path2) {
-    return _booleanOperation(path1, path2, _BooleanOp.union);
+  /// Experimental: joins the outlines of [first] and [second] into one ring,
+  /// the points of [first] followed by those of [second]. This is not an area
+  /// union: overlapping or contained shapes are not merged. If either path
+  /// is empty, the other is returned.
+  ///
+  /// Each path is flattened into a single ring: the points of all its
+  /// contours are joined in order, cubic curves are subdivided, and arc and
+  /// ellipse commands are dropped. The result is one closed ring, or empty.
+  @experimental
+  static Path union(Path first, Path second) {
+    return _combine(first, second, _Operation.union);
   }
 
-  /// Compute the intersection of two paths
-  static Path intersection(Path path1, Path path2) {
-    return _booleanOperation(path1, path2, _BooleanOp.intersection);
+  /// Experimental: a ring through the endpoints of every edge of either
+  /// path that crosses an edge of the other. This is not the area
+  /// intersection: it is empty when the outlines do not cross, including
+  /// when one shape lies inside the other, and empty if either path is
+  /// empty.
+  ///
+  /// Each path is flattened into a single ring: the points of all its
+  /// contours are joined in order, cubic curves are subdivided, and arc and
+  /// ellipse commands are dropped. The result is one closed ring, or empty.
+  @experimental
+  static Path intersection(Path first, Path second) {
+    return _combine(first, second, _Operation.intersection);
   }
 
-  /// Compute the difference of two paths (path1 - path2)
-  static Path difference(Path path1, Path path2) {
-    return _booleanOperation(path1, path2, _BooleanOp.difference);
+  /// Experimental: a ring through the edges of [first] that do not cross
+  /// [second]. [second]'s area is never subtracted: when the outlines do not
+  /// cross, [first] is returned whole, even if [second] lies inside it.
+  /// Empty if [first] is empty; [first] if [second] is empty.
+  ///
+  /// Each path is flattened into a single ring: the points of all its
+  /// contours are joined in order, cubic curves are subdivided, and arc and
+  /// ellipse commands are dropped. The result is one closed ring, or empty.
+  @experimental
+  static Path difference(Path first, Path second) {
+    return _combine(first, second, _Operation.difference);
   }
 
-  /// Compute the exclusive OR (XOR) of two paths
-  static Path xor(Path path1, Path path2) {
-    return _booleanOperation(path1, path2, _BooleanOp.xor);
+  /// Experimental: a ring through the edges of either path that do not
+  /// cross the other. When the outlines do not cross this is the same as
+  /// [union]. If either path is empty, the other is returned.
+  ///
+  /// Each path is flattened into a single ring: the points of all its
+  /// contours are joined in order, cubic curves are subdivided, and arc and
+  /// ellipse commands are dropped. The result is one closed ring, or empty.
+  @experimental
+  static Path xor(Path first, Path second) {
+    return _combine(first, second, _Operation.xor);
   }
 
   /// Main boolean operation implementation
-  static Path _booleanOperation(Path path1, Path path2, _BooleanOp op) {
+  static Path _combine(Path first, Path second, final _Operation operation) {
     // Tessellate paths to polygons
-    final poly1 = _tessellatePathToPolygon(path1);
-    final poly2 = _tessellatePathToPolygon(path2);
+    final polygon1 = _polygon(first);
+    final polygon2 = _polygon(second);
 
-    if (poly1.isEmpty && poly2.isEmpty) return Path();
-    if (poly1.isEmpty) {
-      return (op == _BooleanOp.union || op == _BooleanOp.xor)
-          ? path2.clone()
+    if (polygon1.isEmpty && polygon2.isEmpty) return Path();
+    if (polygon1.isEmpty) {
+      return (operation == _Operation.union || operation == _Operation.xor)
+          ? second.clone()
           : Path();
     }
-    if (poly2.isEmpty) {
-      return (op == _BooleanOp.union ||
-              op == _BooleanOp.difference ||
-              op == _BooleanOp.xor)
-          ? path1.clone()
+    if (polygon2.isEmpty) {
+      return (operation == _Operation.union ||
+              operation == _Operation.difference ||
+              operation == _Operation.xor)
+          ? first.clone()
           : Path();
     }
 
@@ -429,51 +438,52 @@ class PathOperations {
     final edges = <_Edge>[];
 
     // Add subject edges
-    for (int i = 0; i < poly1.length; i++) {
-      final next = (i + 1) % poly1.length;
-      edges.add(_Edge(poly1[i], poly1[next], _EDGE_SUBJECT, true));
+    for (int i = 0; i < polygon1.length; i++) {
+      final next = (i + 1) % polygon1.length;
+      edges.add(_Edge(polygon1[i], polygon1[next], _subject, true));
     }
 
     // Add clip edges
-    for (int i = 0; i < poly2.length; i++) {
-      final next = (i + 1) % poly2.length;
-      edges.add(_Edge(poly2[i], poly2[next], _EDGE_CLIP, true));
+    for (int i = 0; i < polygon2.length; i++) {
+      final next = (i + 1) % polygon2.length;
+      edges.add(_Edge(polygon2[i], polygon2[next], _clip, true));
     }
 
     // Find all intersections
-    final intersections = _findIntersections(edges);
+    final intersections = _intersections(edges);
 
     // Build result path based on operation
-    return _buildResultPath(edges, intersections, op);
+    return _build(edges, intersections, operation);
   }
 
   /// Tessellate a path to a polygon (list of points)
-  static List<Point> _tessellatePathToPolygon(Path path) {
+  static List<Point> _polygon(Path path) {
     final points = <Point>[];
-    Point? lastPoint;
+    Point? last;
 
-    for (final cmd in path.commands) {
-      if (cmd.type == PathCommandType.moveTo && cmd.points.isNotEmpty) {
-        points.add(cmd.points[0]);
-        lastPoint = cmd.points[0];
-      } else if (cmd.type == PathCommandType.lineTo && cmd.points.isNotEmpty) {
-        points.add(cmd.points[0]);
-        lastPoint = cmd.points[0];
-      } else if (cmd.type == PathCommandType.cubicCurveTo &&
-          cmd.points.length >= 3) {
+    for (final command in path.commands) {
+      if (command.type == PathCommandType.moveTo && command.points.isNotEmpty) {
+        points.add(command.points[0]);
+        last = command.points[0];
+      } else if (command.type == PathCommandType.lineTo &&
+          command.points.isNotEmpty) {
+        points.add(command.points[0]);
+        last = command.points[0];
+      } else if (command.type == PathCommandType.cubicCurveTo &&
+          command.points.length >= 3) {
         // Tessellate cubic curve
-        if (lastPoint != null) {
-          final tessellated = _tessellateCubicBezier(
-            lastPoint,
-            cmd.points[0],
-            cmd.points[1],
-            cmd.points[2],
+        if (last != null) {
+          final tessellated = _tessellate(
+            last,
+            command.points[0],
+            command.points[1],
+            command.points[2],
           );
           // Skip first point as it's already in the list
           for (int i = 1; i < tessellated.length; i++) {
             points.add(tessellated[i]);
           }
-          lastPoint = cmd.points[2];
+          last = command.points[2];
         }
       }
     }
@@ -482,23 +492,18 @@ class PathOperations {
   }
 
   /// Tessellate a cubic Bezier curve
-  static List<Point> _tessellateCubicBezier(
-    Point p0,
-    Point p1,
-    Point p2,
-    Point p3,
-  ) {
+  static List<Point> _tessellate(Point p0, Point p1, Point p2, Point p3) {
     // Estimate number of segments needed
-    final d1 = p0.distanceTo(p1) + p1.distanceTo(p2) + p2.distanceTo(p3);
-    final d2 = p0.distanceTo(p3);
+    final hull = p0.distance(p1) + p1.distance(p2) + p2.distance(p3);
+    final chord = p0.distance(p3);
 
-    if (d1 == 0) return [p0, p3];
+    if (hull == 0) return [p0, p3];
 
     final segments = math.max(
       _NumericalConstants.minCurveSegments,
       math.min(
         _NumericalConstants.maxCurveSegments,
-        (d1 / math.max(d2, 1.0) * 8).round(),
+        (hull / math.max(chord, 1.0) * 8).round(),
       ),
     );
 
@@ -524,7 +529,7 @@ class PathOperations {
   }
 
   /// Find all intersections between edges
-  static Map<_Edge, List<Point>> _findIntersections(List<_Edge> edges) {
+  static Map<_Edge, List<Point>> _intersections(List<_Edge> edges) {
     final intersections = <_Edge, List<Point>>{};
 
     for (int i = 0; i < edges.length; i++) {
@@ -543,73 +548,75 @@ class PathOperations {
   }
 
   /// Build result path from edges and intersections
-  static Path _buildResultPath(
+  static Path _build(
     List<_Edge> edges,
     Map<_Edge, List<Point>> intersections,
-    _BooleanOp op,
+    final _Operation operation,
   ) {
     // This is a simplified implementation
     // A full implementation would require a sweep line algorithm
     // For now, return a simple union approximation
 
     final builder = PathBuilder();
-    final processedPoints = <Point>{};
+    final visited = <Point>{};
 
     for (final edge in edges) {
-      bool includeEdge = false;
+      bool include = false;
 
-      switch (op) {
-        case _BooleanOp.union:
-          includeEdge = true;
+      switch (operation) {
+        case _Operation.union:
+          include = true;
           break;
-        case _BooleanOp.intersection:
-          includeEdge = intersections.containsKey(edge);
+        case _Operation.intersection:
+          include = intersections.containsKey(edge);
           break;
-        case _BooleanOp.difference:
-          includeEdge =
-              edge.type == _EDGE_SUBJECT && !intersections.containsKey(edge);
+        case _Operation.difference:
+          include = edge.type == _subject && !intersections.containsKey(edge);
           break;
-        case _BooleanOp.xor:
-          includeEdge = !intersections.containsKey(edge);
+        case _Operation.xor:
+          include = !intersections.containsKey(edge);
           break;
       }
 
-      if (includeEdge) {
-        if (!processedPoints.contains(edge.start)) {
-          if (processedPoints.isEmpty) {
+      if (include) {
+        if (!visited.contains(edge.start)) {
+          if (visited.isEmpty) {
             builder.moveTo(edge.start.x, edge.start.y);
           } else {
             builder.lineTo(edge.start.x, edge.start.y);
           }
-          processedPoints.add(edge.start);
+          visited.add(edge.start);
         }
-        if (!processedPoints.contains(edge.end)) {
+        if (!visited.contains(edge.end)) {
           builder.lineTo(edge.end.x, edge.end.y);
-          processedPoints.add(edge.end);
+          visited.add(edge.end);
         }
       }
     }
 
-    if (processedPoints.isNotEmpty) {
-      builder.close();
+    if (visited.isNotEmpty) {
+      builder.closePath();
     }
 
     return builder.build();
   }
 
-  /// Offset a path by a given distance.
-  ///
-  /// Positive distance offsets to the outside, negative to the inside.
+  /// Experimental: the outline of [path] stroked with width
+  /// `2 * distance.abs()` (butt caps, miter joins), so it covers [distance]
+  /// on both sides of the path. The sign of [distance] is ignored: there are
+  /// no separate inside or outside offsets, and self-intersections are not
+  /// removed.
+  @experimental
   static Path offset(Path path, double distance) {
     // For now, this is a simplified implementation that uses the stroker.
     // A more complete implementation would handle self-intersections.
     final stroker = Stroker();
     final state = GraphicsState()..strokeWidth = distance.abs() * 2;
-    final strokedPath = stroker.stroke(path, state);
+    final stroked = stroker.stroke(path, state);
 
     // This is a hack. A real implementation would be much more complex.
     // We are taking the result of the stroker and hoping it's what we want.
     // This will not work correctly for inside offsets or complex shapes.
-    return strokedPath;
+    return stroked;
   }
 }

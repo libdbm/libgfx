@@ -172,8 +172,6 @@ class TtfNameTable {
   String? get fullName => getNameById(4);
 
   String? get version => getNameById(5);
-
-  String? get postScriptName => getNameById(6);
 }
 
 /// Name record in the naming table
@@ -211,7 +209,18 @@ class TtfCmapTable {
 
   /// Get the best Unicode subtable
   TtfCmapSubtable? get unicodeSubtable {
-    // Prefer platform 0 (Unicode) or platform 3 (Microsoft) with Unicode encoding
+    // A full-repertoire subtable first, since a BMP one cannot map the
+    // characters beyond it (emoji, for example)
+    for (final subtable in subtables) {
+      if (subtable.format == 12 &&
+          ((subtable.platformID == 3 && subtable.encodingID == 10) ||
+              (subtable.platformID == 0 &&
+                  (subtable.encodingID == 4 || subtable.encodingID == 6)))) {
+        return subtable;
+      }
+    }
+
+    // Then platform 0 (Unicode) or platform 3 (Microsoft) with Unicode encoding
     for (final subtable in subtables) {
       if (subtable.platformID == 0 ||
           (subtable.platformID == 3 &&
@@ -225,9 +234,9 @@ class TtfCmapTable {
   }
 
   /// Get glyph index for a character code
-  int getGlyphIndex(int charCode) {
+  int getGlyphIndex(final int code) {
     final subtable = unicodeSubtable;
-    return subtable?.charMap[charCode] ?? 0;
+    return subtable?.glyph(code) ?? 0;
   }
 }
 
@@ -236,14 +245,40 @@ class TtfCmapSubtable {
   final int platformID;
   final int encodingID;
   final int format;
+
+  /// Mapping for formats 0 and 4; empty for format 12.
   final Map<int, int> charMap;
+
+  /// Format 12 groups as (start, end, start glyph) triples, sorted by start;
+  /// empty for other formats.
+  final List<int> groups;
 
   const TtfCmapSubtable({
     required this.platformID,
     required this.encodingID,
     required this.format,
-    required this.charMap,
+    this.charMap = const {},
+    this.groups = const [],
   });
+
+  /// Glyph index for character [code], or 0 if it is not mapped.
+  int glyph(int code) {
+    if (groups.isEmpty) return charMap[code] ?? 0;
+    var low = 0;
+    var high = groups.length ~/ 3 - 1;
+    while (low <= high) {
+      final middle = (low + high) >> 1;
+      final start = groups[middle * 3];
+      if (code < start) {
+        high = middle - 1;
+      } else if (code > groups[middle * 3 + 1]) {
+        low = middle + 1;
+      } else {
+        return groups[middle * 3 + 2] + code - start;
+      }
+    }
+    return 0;
+  }
 }
 
 /// Horizontal metrics (hmtx)
@@ -265,15 +300,15 @@ class TtfLocaTable {
   const TtfLocaTable({required this.offsets, required this.isShortFormat});
 
   /// Get the offset for a specific glyph
-  int getGlyphOffset(int glyphIndex) {
-    if (glyphIndex < 0 || glyphIndex >= offsets.length) return 0;
-    return offsets[glyphIndex];
+  int getGlyphOffset(final int glyph) {
+    if (glyph < 0 || glyph >= offsets.length) return 0;
+    return offsets[glyph];
   }
 
   /// Get the length of glyph data
-  int getGlyphLength(int glyphIndex) {
-    if (glyphIndex < 0 || glyphIndex >= offsets.length - 1) return 0;
-    return offsets[glyphIndex + 1] - offsets[glyphIndex];
+  int getGlyphLength(final int glyph) {
+    if (glyph < 0 || glyph >= offsets.length - 1) return 0;
+    return offsets[glyph + 1] - offsets[glyph];
   }
 }
 
@@ -298,8 +333,6 @@ class TtfGlyphData {
   });
 
   bool get isSimpleGlyph => numberOfContours >= 0;
-
-  bool get isCompositeGlyph => numberOfContours < 0;
 }
 
 /// A single contour in a glyph
@@ -335,9 +368,9 @@ class TtfKernTable {
   });
 
   /// Get kerning value for a pair of glyphs
-  int getKerning(int leftGlyphIndex, int rightGlyphIndex) {
+  int getKerning(final int left, final int right) {
     for (final subtable in subtables) {
-      final kerning = subtable.getKerning(leftGlyphIndex, rightGlyphIndex);
+      final kerning = subtable.getKerning(left, right);
       if (kerning != 0) return kerning;
     }
     return 0;
@@ -361,8 +394,8 @@ class TtfKernSubtable {
   });
 
   /// Get kerning for a specific pair
-  int getKerning(int leftGlyphIndex, int rightGlyphIndex) {
-    final pairKey = (leftGlyphIndex << 16) | rightGlyphIndex;
-    return kerningPairs[pairKey] ?? 0;
+  int getKerning(final int left, final int right) {
+    final key = (left << 16) | right;
+    return kerningPairs[key] ?? 0;
   }
 }

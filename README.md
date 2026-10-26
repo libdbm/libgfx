@@ -1,7 +1,7 @@
 # libgfx
 
-A comprehensive 2D vector graphics engine for Dart with software rasterization. Pure Dart implementation with no
-external dependencies, providing high-quality rendering for vector graphics, text, and images.
+A comprehensive 2D vector graphics engine for Dart with software rasterization. Pure Dart implementation whose only
+dependency is the `meta` annotations package, providing high-quality rendering for vector graphics, text, and images.
 
 ## Features
 
@@ -9,15 +9,14 @@ external dependencies, providing high-quality rendering for vector graphics, tex
 
 - **Vector Graphics**: Full path support with lines, Bézier curves, arcs, and complex transformations
 - **Software Rasterization**: High-performance scanline-based rendering with sub-pixel precision
-- **Anti-aliasing**: Superior edge smoothing with configurable quality levels
+- **Anti-aliasing**: Exact-area pixel coverage, or aliased rendering with `BasicRasterizer(antiAlias: false)`
 - **Transform Stack**: Full save/restore state management with nested transformations
 
 ### Text & Fonts
 
 - **TrueType Font Support**: Complete TTF parser with glyph rendering
-- **Advanced Text Layout**: Kerning, ligatures, and unicode support
+- **Text Layout**: Kerning, alignment, baselines, line wrapping, and Unicode support
 - **Text Metrics**: Precise font measurements and bounding box calculations
-- **Multiple Font Formats**: Support for various font weights and styles
 - **Font Fallback**: Automatic fallback for missing glyphs
 
 ### Painting & Effects
@@ -31,8 +30,12 @@ external dependencies, providing high-quality rendering for vector graphics, tex
 ### Advanced Features
 
 - **Clipping**: Complex clipping regions with even-odd and non-zero winding rules
-- **Path Operations**: Boolean operations (union, intersection, difference, XOR)
-- **Image Codecs**: PNG, BMP, PPM/P3/P6 format support
+- **Path Operations** (experimental): approximate union, intersection, difference, XOR and offset; see their API
+  documentation for what they actually compute
+- **Image Codecs**: PNG (every colour type and bit depth, transparency, interlacing), BMP (24- and 32-bit) and PPM
+  (P3 and P6) decoding and encoding, returning a `Result` instead of throwing on bad input
+- **Resource Limits**: `Limits` bounds image size, font size, glyph complexity, blur radius and dash count for
+  untrusted input
 
 ## Installation
 
@@ -40,7 +43,7 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  libgfx: ^1.0.0
+  libgfx: ^2.0.0
 ```
 
 ### Font Setup
@@ -70,31 +73,32 @@ void main() async {
   );
   
   // Set up styling
-  engine.setFillColor(const Color(0xFFFF0000)); // Red
-  engine.setStrokeColor(const Color(0xFF0000FF)); // Blue
-  engine.setStrokeWidth(3.0);
+  engine.fillStyle = const Color(0xFFFF0000); // Red
+  engine.strokeStyle = const Color(0xFF0000FF); // Blue
+  engine.lineWidth = 3.0;
   
-  // Draw a rectangle using path
-  final path = PathBuilder()
-    ..moveTo(50, 50)
-    ..lineTo(200, 50)
-    ..lineTo(200, 150)
-    ..lineTo(50, 150)
-    ..close();
+  // Draw a rectangle using a path
+  final path = (PathBuilder()
+        ..moveTo(50, 50)
+        ..lineTo(200, 50)
+        ..lineTo(200, 150)
+        ..lineTo(50, 150)
+        ..closePath())
+      .build();
   
-  engine.fill(path.build());
-  engine.stroke(path.build());
+  engine.fill(path);
+  engine.stroke(path);
   
   // Or use convenience methods
   engine.fillRect(250, 50, 100, 100);
   engine.strokeRect(250, 50, 100, 100);
   
   // Save to file (defaults to PPM format)
-  await engine.saveToFile('output.ppm');
+  await engine.write('output.ppm');
   
   // For other formats, use the codec system:
-  final pngBytes = GraphicsEngine.saveImageToBytes(engine.canvas, 'png');
-  await engine.filesystem?.writeFile('output.png', pngBytes);
+  final pngBytes = GraphicsEngine.encode(engine.canvas, 'png');
+  await engine.filesystem?.write('output.png', pngBytes);
 }
 ```
 
@@ -106,48 +110,57 @@ import 'package:libgfx/io/local_file_system.dart';
 // Ensure the engine has a file system before loading fonts
 engine.filesystem ??= const LocalGraphicsFileSystem();
 
-// Load a font
-await engine.setFontFromFile('fonts/Roboto-Regular.ttf');
-engine.setFontSize(24);
-engine.setTextAlign(TextAlign.center);
-engine.setTextBaseline(TextBaseline.middle);
+// Load a font; failures are returned, not thrown, and keep the current font
+final loaded = await engine.loadFont('fonts/Roboto-Regular.ttf');
+if (loaded case Err(:final error)) {
+  print('Cannot load font: ${error.message}');
+}
+engine.fontSize = 24;
+engine.textAlign = TextAlign.center;
+engine.textBaseline = TextBaseline.middle;
 
 // Render text
-engine.setFillColor(Color.fromRGBA(0, 0, 0, 255));
+engine.fillStyle = Color.fromRGBA(0, 0, 0, 255);
 engine.fillText('Hello, World!', 200, 150);
 ```
+
+Font, size, alignment and baseline are part of the graphics state, so `save()` and `restore()` cover them.
 
 ## Gradients
 
 ```dart
 // Linear gradient
 final gradient = LinearGradient(
-  startPoint: Point(0, 0),
-  endPoint: Point(200, 0),
-  colors: [
-    Color.fromRGBA(255, 0, 0, 255),
-    Color.fromRGBA(0, 0, 255, 255),
+  start: Point(0, 0),
+  end: Point(200, 0),
+  stops: [
+    ColorStop(0.0, Color.fromRGBA(255, 0, 0, 255)),
+    ColorStop(1.0, Color.fromRGBA(0, 0, 255, 255)),
   ],
-  stops: [0.0, 1.0],
 );
-engine.setFillPaint(gradient);
+engine.fillStyle = gradient;
 
-// Radial gradient
-final radial = RadialGradient(
-  center: Point(100, 100),
-  radius: 50,
-  colors: [
-    Color.fromRGBA(255, 255, 255, 255),
-    Color.fromRGBA(0, 0, 0, 255),
-  ],
-  stops: [0.0, 1.0],
-);
-engine.setFillPaint(radial);
+// Radial gradient, built from the engine's factory; gradients are
+// immutable, so addColorStop returns a new gradient
+final radial = engine
+    .createRadialGradient(100, 100, 0, 100, 100, 50)
+    .addColorStop(0.0, Color.fromRGBA(255, 255, 255, 255))
+    .addColorStop(1.0, Color.fromRGBA(0, 0, 0, 255));
+engine.fillStyle = radial;
 ```
 
 ## Transformations
 
 ```dart
+import 'dart:math' as math;
+
+final path = (PathBuilder()
+      ..moveTo(0, 0)
+      ..lineTo(20, 0)
+      ..lineTo(0, 20)
+      ..closePath())
+    .build();
+
 // Apply transformations
 engine.save();
 engine.translate(100, 100);
@@ -155,35 +168,43 @@ engine.rotate(math.pi / 4);
 engine.scale(2.0, 2.0);
 
 // Draw transformed content
-engine.fill(path.build());
+engine.fill(path);
 
 engine.restore();
 ```
 
 ## Image Filters
 
+Filters take a bitmap and return a new one:
+
 ```dart
 // Apply Gaussian blur
-engine.applyGaussianBlur(5.0);
+final blurred = ImageFilters.gaussian(engine.canvas, 5.0);
 
 // Apply sharpening
-engine.applySharpen(1.5);
+final sharpened = ImageFilters.sharpen(engine.canvas, 1.5);
 
 // Apply edge detection
-engine.applyEdgeDetect(threshold: 128);
+final edges = ImageFilters.edges(engine.canvas, threshold: 128);
+
+// Draw a result back onto the canvas
+engine.drawImage(blurred, 0, 0);
 ```
 
 ## Advanced Clipping
 
 ```dart
-// Create a circular clipping region
-final clipPath = PathBuilder()
-  ..moveTo(150, 100)
-  ..arcTo(100, 100, 50, 0, math.pi * 2, false)
-  ..close();
+import 'dart:math' as math;
 
-engine.clipWithFillRule(clipPath.build(), fillRule: FillRule.evenOdd);
+// Create a circular clipping region: centre, radius, start angle, sweep
+final clipPath = PathBuilder()
+  ..arc(100, 100, 50, 0, math.pi * 2)
+  ..closePath();
+
+engine.clip(clipPath.build(), rule: FillRule.nonZero);
 ```
+
+`clip()` uses the even-odd rule; `fill()` uses non-zero unless given a rule.
 
 ## Documentation
 
@@ -193,16 +214,21 @@ Comprehensive documentation is available in the `doc/` directory:
 - [API Reference](doc/api-reference.md) - Complete API documentation
 - [Advanced Features](doc/advanced-features.md) - Filters, clipping, path operations
 - [Examples](doc/examples.md) - Complete working examples
+- [Rendering Model](doc/rendering-model.md) - Coordinates, coverage, compositing and fill rules, with the tests that
+  pin them
 
 ## Example Programs
 
-The `example/` directory contains runnable example programs:
+The `example/` directory contains runnable example programs. Each draws at twice its page size
+(`GraphicsEngine(2 * width, 2 * height)..scale(2, 2)`), so its output is sharp on high-DPI screens; the drawing code is
+in page units.
 
 ### Basic Examples
 
 - `example.dart` - Basic shapes and paths
 - `drawing.dart` - Simple drawing operations
 - `smiley.dart` - Drawing a smiley face
+- `curve_methods_demo.dart` - Cubic and quadratic Bezier curve methods
 
 ### Text & Fonts
 
@@ -220,25 +246,32 @@ The `example/` directory contains runnable example programs:
 - `advanced_features_demo.dart` - Comprehensive feature showcase
 - `blend_modes_demo.dart` - All blend mode demonstrations
 - `clip_demo.dart` - Clipping region examples
-- `path_operations_demo.dart` - Boolean path operations
+- `clipping.dart` - A dashed circle clipped to a star
+- `path_operations_demo.dart` - Path operations, including the experimental boolean operations
+- `image_demo.dart` - Drawing images with each sampling filter
+- `quality_demo.dart` - Fill rules, text and curve quality
+- `antialiasing_test.dart` - Anti-aliased shape edges
 
 ### Strokes & Dashes
 
 - `stroking.dart` - Stroke styles and line joins
 - `dashes.dart` - Dash patterns and effects
-- `square_cap_test.dart` - Line cap demonstrations
+- `square_cap_demo.dart` - Line cap demonstrations
 
 ### Transformations
 
 - `nested_transforms.dart` - Complex transformation stacks
 - `state_spiral.dart` - State management with spirals
-- `transform_utils_demo.dart` - Transform utilities
 
 ### Artistic Examples
 
 - `snowflake.dart` - Procedural snowflake generation
 - `escher.dart` - Escher-like patterns
 - `tiger.dart` - Complex path rendering
+
+### Tools
+
+- `compare_images.dart` - Compares two PPM images pixel by pixel
 
 ## Architecture
 
@@ -260,7 +293,7 @@ The library uses a layered architecture:
 dart test
 
 # Run specific test
-dart test test/graphics_engine_test.dart
+dart test test/graphics_context_test.dart
 
 # Analyze code
 dart analyze
@@ -326,11 +359,9 @@ The following features are planned for future releases:
 
 ### Graphics Engine Enhancements
 
-- **Gradient Support in Fluent API**: Full gradient implementation for `fillLinearGradient()` and `fillRadialGradient()`
-  methods in FluentGraphicsEngine (currently uses first color stop as fallback)
-- **Image Filters**: Complete implementation of `applyFilter()` method with support for blur, sharpen, edge detection,
-  and other effects
-- **Path Offsetting**: Proper path offset/outline operations with configurable join types and miter limits
+- **Boolean Path Operations**: True area-based union, intersection, difference and XOR to replace the experimental
+  edge-based versions
+- **Path Offsetting**: Proper inside and outside offsets with configurable join types and miter limits
 
 ### Text & Font System
 
@@ -345,7 +376,8 @@ The following features are planned for future releases:
 
 ### Additional Features
 
-- **SVG Parser**: Import and render SVG files
+- **SVG Import**: Full SVG documents (`SVGPath.parse` reads only `<path>` elements, with all their path commands, and
+  their fill colours)
 - **PDF Export**: Export graphics to PDF format
 - **Animation Framework**: Timeline-based animation system
 - **Vector Effects**: Stroke effects, shadows, and lighting

@@ -8,34 +8,30 @@ import '../fonts/font_error_messages.dart';
 import '../fonts/font_fallback.dart';
 import '../paths/path.dart' show Path, PathCommand;
 import '../point.dart';
+import 'bidi.dart';
 import 'text_types.dart'
-    show
-        TextAlign,
-        TextBaseline,
-        TextOperation,
-        TextDirection,
-        ScriptType,
-        TextMetrics;
+    show TextAlign, TextBaseline, TextDirection, ScriptType, TextMetrics;
 import 'text_shaper.dart' show ShapedText, TextShaper, BasicTextShaper;
 
 /// Text rendering engine with font management, shaping, and metrics calculation
 class TextEngine {
   // Core properties
   Font? _font;
-  final FontFallbackChain _fontChain;
+  final FontFallbackChain _chain;
   final TextShaper _shaper;
   double _fontSize;
   TextAlign _textAlign;
   TextBaseline _textBaseline;
+  TextDirection _direction;
 
   // Caching
-  final Map<String, ShapedText> _shapedCache = {};
-  final Map<String, TextMetrics> _metricsCache = {};
+  final Map<String, ShapedText> _shapes = {};
+  final Map<String, TextMetrics> _metrics = {};
   static const int maxCacheSize = 100;
 
   // Statistics
-  int _cacheHits = 0;
-  int _cacheMisses = 0;
+  int _hits = 0;
+  int _misses = 0;
 
   /// Create a text engine with optional Unicode support
   TextEngine({
@@ -43,23 +39,25 @@ class TextEngine {
     FontFallbackChain? fontChain,
     TextShaper? shaper,
     double fontSize = 12.0,
-    TextAlign textAlign = TextAlign.left,
+    TextAlign textAlign = TextAlign.start,
     TextBaseline textBaseline = TextBaseline.alphabetic,
+    TextDirection direction = TextDirection.ltr,
   }) : _font = font,
-       _fontChain = fontChain ?? FontFallbackChain(),
+       _chain = fontChain ?? FontFallbackChain(),
        _shaper = shaper ?? BasicTextShaper(),
        _fontSize = fontSize,
        _textAlign = textAlign,
-       _textBaseline = textBaseline;
+       _textBaseline = textBaseline,
+       _direction = direction;
 
   /// Get the primary font for rendering
-  Font? get font => _font ?? _fontChain.primaryFont;
+  Font? get font => _font ?? _chain.primary;
 
   /// Set the primary font
   set font(Font? value) {
     if (_font != value) {
       _font = value;
-      clearCache();
+      purge();
     }
   }
 
@@ -68,7 +66,7 @@ class TextEngine {
   set fontSize(double value) {
     if (_fontSize != value) {
       _fontSize = value;
-      clearCache();
+      purge();
     }
   }
 
@@ -80,60 +78,63 @@ class TextEngine {
   TextBaseline get textBaseline => _textBaseline;
   set textBaseline(TextBaseline value) => _textBaseline = value;
 
+  /// The paragraph direction of [path], and the side [TextAlign.start] and
+  /// [TextAlign.end] mean
+  TextDirection get direction => _direction;
+  set direction(TextDirection value) => _direction = value;
+
   /// Add a font to the fallback chain
-  void addFont(Font font) {
-    _fontChain.addFont(font);
-    clearCache();
+  void add(Font font) {
+    _chain.add(font);
+    purge();
   }
 
   /// Clear all caches
-  void clearCache() {
-    _shapedCache.clear();
-    _metricsCache.clear();
-    _cacheHits = 0;
-    _cacheMisses = 0;
+  void purge() {
+    _shapes.clear();
+    _metrics.clear();
+    _hits = 0;
+    _misses = 0;
   }
 
   /// Get cache statistics
-  Map<String, int> get cacheStats => {
-    'hits': _cacheHits,
-    'misses': _cacheMisses,
-    'hitRate': _cacheHits + _cacheMisses > 0
-        ? (_cacheHits * 100 ~/ (_cacheHits + _cacheMisses))
-        : 0,
+  Map<String, int> get stats => {
+    'hits': _hits,
+    'misses': _misses,
+    'hitRate': _hits + _misses > 0 ? (_hits * 100 ~/ (_hits + _misses)) : 0,
   };
 
   /// Measure text with caching
-  TextMetrics measureText(String text, [double? fontSize]) {
+  TextMetrics measure(String text, [double? fontSize]) {
     fontSize ??= _fontSize;
-    final currentFont = font;
-    if (currentFont == null) {
+    final typeface = font;
+    if (typeface == null) {
       throw FontException(FontErrorMessages.noFontSetMeasure);
     }
 
     // Check cache
-    final cacheKey = '${text}_${fontSize}_${currentFont.hashCode}';
-    final cached = _metricsCache[cacheKey];
+    final key = '${text}_${fontSize}_${typeface.hashCode}';
+    final cached = _metrics[key];
     if (cached != null) {
-      _cacheHits++;
+      _hits++;
       return cached;
     }
 
     // Measure and cache
-    _cacheMisses++;
-    final metrics = currentFont.measureText(text, fontSize);
+    _misses++;
+    final metrics = typeface.measure(text, fontSize);
 
     // Manage cache size
-    if (_metricsCache.length >= maxCacheSize) {
-      _metricsCache.remove(_metricsCache.keys.first);
+    if (_metrics.length >= maxCacheSize) {
+      _metrics.remove(_metrics.keys.first);
     }
-    _metricsCache[cacheKey] = metrics;
+    _metrics[key] = metrics;
 
     return metrics;
   }
 
   /// Shape text with caching
-  ShapedText shapeText(
+  ShapedText shape(
     String text, {
     double? fontSize,
     TextDirection direction = TextDirection.auto,
@@ -142,29 +143,29 @@ class TextEngine {
     List<String>? features,
   }) {
     fontSize ??= _fontSize;
-    final currentFont = font;
-    if (currentFont == null) {
+    final typeface = font;
+    if (typeface == null) {
       throw FontException(FontErrorMessages.noFontSetGeneric);
     }
 
     // Generate cache key
-    final cacheKey =
-        '${text}_${fontSize}_${currentFont.hashCode}_'
+    final key =
+        '${text}_${fontSize}_${typeface.hashCode}_'
         '${direction.index}_${script.index}_${language ?? ""}_'
         '${features?.join(",") ?? ""}';
 
     // Check cache
-    final cached = _shapedCache[cacheKey];
+    final cached = _shapes[key];
     if (cached != null) {
-      _cacheHits++;
+      _hits++;
       return cached;
     }
 
     // Shape and cache
-    _cacheMisses++;
-    final shaped = _shaper.shapeText(
+    _misses++;
+    final shaped = _shaper.shape(
       text,
-      currentFont,
+      typeface,
       fontSize,
       direction: direction,
       script: script,
@@ -173,16 +174,16 @@ class TextEngine {
     );
 
     // Manage cache size
-    if (_shapedCache.length >= maxCacheSize) {
-      _shapedCache.remove(_shapedCache.keys.first);
+    if (_shapes.length >= maxCacheSize) {
+      _shapes.remove(_shapes.keys.first);
     }
-    _shapedCache[cacheKey] = shaped;
+    _shapes[key] = shaped;
 
     return shaped;
   }
 
   /// Generate a path for text
-  Path generateTextPath(
+  Path path(
     String text,
     double x,
     double y, {
@@ -194,47 +195,44 @@ class TextEngine {
     align ??= _textAlign;
     baseline ??= _textBaseline;
 
-    final currentFont = font;
-    if (currentFont == null) {
+    final typeface = font;
+    if (typeface == null) {
       throw FontException(FontErrorMessages.noFontSet);
     }
 
     // Calculate adjusted position
-    final position = _calculatePosition(text, x, y, fontSize, align, baseline);
+    final position = _position(text, x, y, fontSize, align, baseline);
 
     // Shape the text
-    final shaped = shapeText(text, fontSize: fontSize);
+    final shaped = shape(text, fontSize: fontSize, direction: _direction);
 
     // Build the path
     final path = Path();
-    double currentX = position.x;
+    double cursor = position.x;
 
     for (final glyph in shaped.glyphs) {
-      final glyphPath = (glyph.font ?? currentFont).getGlyphPath(
-        glyph.glyphId,
-        fontSize,
-      );
-      // The path is already scaled by the font's getGlyphPath method
+      final outline = (glyph.font ?? typeface).outline(glyph.glyph, fontSize);
+      // The path is already scaled by the font's outline method
       // Transform and add to the main path
-      final transformedPath = Path();
-      for (final cmd in glyphPath.commands) {
-        final transformedPoints = cmd.points.map((p) {
+      final transformed = Path();
+      for (final command in outline.commands) {
+        final points = command.points.map((point) {
           return Point(
-            p.x + currentX + glyph.xOffset,
-            p.y + position.y + glyph.yOffset,
+            point.x + cursor + glyph.xOffset,
+            point.y + position.y + glyph.yOffset,
           );
         }).toList();
-        transformedPath.addCommand(PathCommand(cmd.type, transformedPoints));
+        transformed.add(PathCommand(command.type, points));
       }
-      path.addPath(transformedPath);
-      currentX += glyph.xAdvance;
+      path.addPath(transformed);
+      cursor += glyph.xAdvance;
     }
 
     return path;
   }
 
   /// Calculate adjusted text position based on alignment and baseline
-  Point _calculatePosition(
+  Point _position(
     String text,
     double x,
     double y,
@@ -242,16 +240,29 @@ class TextEngine {
     TextAlign align,
     TextBaseline baseline,
   ) {
-    final metrics = measureText(text, fontSize);
+    final metrics = measure(text, fontSize);
+    // Align on the shaped run, which is what gets drawn
+    final width = shape(
+      text,
+      fontSize: fontSize,
+      direction: _direction,
+    ).advance;
+    final rtl = Bidi.paragraph(text, _direction).isOdd;
 
     // Horizontal alignment
-    double adjustedX = x;
+    double left = x;
     switch (align) {
       case TextAlign.center:
-        adjustedX = x - metrics.width / 2;
+        left = x - width / 2;
         break;
       case TextAlign.right:
-        adjustedX = x - metrics.width;
+        left = x - width;
+        break;
+      case TextAlign.start:
+        left = rtl ? x - width : x;
+        break;
+      case TextAlign.end:
+        left = rtl ? x : x - width;
         break;
       case TextAlign.left:
       case TextAlign.justify:
@@ -259,17 +270,18 @@ class TextEngine {
         break;
     }
 
-    // Vertical baseline
-    double adjustedY = y;
+    // Vertical baseline; graphics space is Y-up, so text hangs below a top
+    // baseline and stands above a bottom one
+    double base = y;
     switch (baseline) {
       case TextBaseline.top:
-        adjustedY = y + metrics.ascent;
+        base = y - metrics.ascent;
         break;
       case TextBaseline.middle:
-        adjustedY = y + metrics.ascent / 2;
+        base = y - metrics.ascent / 2;
         break;
       case TextBaseline.bottom:
-        adjustedY = y - metrics.descent;
+        base = y + metrics.descent.abs();
         break;
       case TextBaseline.alphabetic:
       case TextBaseline.ideographic:
@@ -278,44 +290,67 @@ class TextEngine {
         break;
     }
 
-    return Point(adjustedX, adjustedY);
+    return Point(left, base);
   }
 
   /// Layout multi-line text
-  List<String> layoutMultilineText(
+  List<String> wrap(String text, double maxWidth, {double? fontSize}) {
+    final size = fontSize ?? _fontSize;
+    return split(text, maxWidth, (value) => measure(value, size).width);
+  }
+
+  /// Breaks [text] into lines no wider than [maxWidth], greedily by words.
+  /// Any run of whitespace separates words; a word wider than [maxWidth]
+  /// gets a line of its own. [width] measures a string, and must be
+  /// additive apart from kerning between adjacent characters: the line's
+  /// width is kept as a running total, adding the width of each word with
+  /// its space and the kerning measured at the join, so each word is
+  /// measured once rather than re-measuring the growing line.
+  static List<String> split(
     String text,
-    double maxWidth, {
-    double? fontSize,
-    double lineSpacing = 1.2,
-  }) {
-    fontSize ??= _fontSize;
+    double maxWidth,
+    double Function(String) width,
+  ) {
     final lines = <String>[];
-    final words = text.split(RegExp(r'\s+'));
+    final line = StringBuffer();
+    final space = width(' ');
+    var total = 0.0; // width of line
+    var last = ''; // last character of line
 
-    String currentLine = '';
-    for (final word in words) {
-      final testLine = currentLine.isEmpty ? word : '$currentLine $word';
-      final metrics = measureText(testLine, fontSize);
-
-      if (metrics.width <= maxWidth) {
-        currentLine = testLine;
+    for (final word in text.split(RegExp(r'\s+'))) {
+      if (word.isEmpty) continue;
+      if (line.isEmpty) {
+        line.write(word);
+        total = width(word);
       } else {
-        if (currentLine.isNotEmpty) {
-          lines.add(currentLine);
+        final join = width('$last ') - width(last) - space;
+        final candidate = total + join + width(' $word');
+        if (candidate <= maxWidth) {
+          line
+            ..write(' ')
+            ..write(word);
+          total = candidate;
+        } else {
+          lines.add(line.toString());
+          line
+            ..clear()
+            ..write(word);
+          total = width(word);
         }
-        currentLine = word;
       }
+      last = String.fromCharCode(word.runes.last);
     }
 
-    if (currentLine.isNotEmpty) {
-      lines.add(currentLine);
+    if (line.isNotEmpty) {
+      lines.add(line.toString());
     }
 
     return lines;
   }
 
-  /// Generate paths for multi-line text
-  List<Path> generateMultilineTextPaths(
+  /// Generate paths for multi-line text, the first line at y and each
+  /// following line [lineSpacing] line heights below the one before
+  List<Path> paths(
     String text,
     double x,
     double y,
@@ -326,102 +361,27 @@ class TextEngine {
     TextBaseline? baseline,
   }) {
     fontSize ??= _fontSize;
-    final lines = layoutMultilineText(text, maxWidth, fontSize: fontSize);
+    final lines = wrap(text, maxWidth, fontSize: fontSize);
     final paths = <Path>[];
 
-    double currentY = y;
+    double cursor = y;
     for (final line in lines) {
       paths.add(
-        generateTextPath(
+        path(
           line,
           x,
-          currentY,
+          cursor,
           fontSize: fontSize,
           align: align,
           baseline: baseline,
         ),
       );
 
-      final metrics = measureText(line, fontSize);
-      currentY += metrics.lineHeight * lineSpacing;
+      final metrics = measure(line, fontSize);
+      // Graphics space is Y-up, so the next line is lower
+      cursor -= metrics.lineHeight * lineSpacing;
     }
 
     return paths;
-  }
-}
-
-/// Mixin to add text rendering capabilities to GraphicsEngine
-mixin TextRenderingMixin {
-  // These must be provided by the class using this mixin
-  TextEngine? get textEngine;
-  void fill(Path path);
-  void stroke(Path path);
-  void clip(Path path);
-
-  /// Render text with the specified operation
-  void renderText(
-    String text,
-    double x,
-    double y,
-    TextOperation operation, {
-    double? fontSize,
-    TextAlign? align,
-    TextBaseline? baseline,
-  }) {
-    final engine = textEngine;
-    if (engine == null) {
-      throw FontException('Text engine not initialized');
-    }
-
-    // Generate text path
-    final path = engine.generateTextPath(
-      text,
-      x,
-      y,
-      fontSize: fontSize,
-      align: align,
-      baseline: baseline,
-    );
-
-    // Apply operation
-    switch (operation) {
-      case TextOperation.fill:
-        fill(path);
-        break;
-      case TextOperation.stroke:
-        stroke(path);
-        break;
-      case TextOperation.clip:
-        clip(path);
-        break;
-      case TextOperation.fillAndStroke:
-        fill(path);
-        stroke(path);
-        break;
-    }
-  }
-
-  /// Fill text at the specified position
-  void fillText(String text, double x, double y) {
-    renderText(text, x, y, TextOperation.fill);
-  }
-
-  /// Stroke text at the specified position
-  void strokeText(String text, double x, double y) {
-    renderText(text, x, y, TextOperation.stroke);
-  }
-
-  /// Fill and stroke text at the specified position
-  void fillAndStrokeText(String text, double x, double y) {
-    renderText(text, x, y, TextOperation.fillAndStroke);
-  }
-
-  /// Measure text dimensions
-  TextMetrics measureText(String text, [double? fontSize]) {
-    final engine = textEngine;
-    if (engine == null) {
-      throw FontException('Text engine not initialized');
-    }
-    return engine.measureText(text, fontSize);
   }
 }

@@ -4,13 +4,16 @@ import 'package:libgfx/io/local_file_system.dart';
 import 'package:libgfx/libgfx.dart';
 import 'package:test/test.dart';
 
+import 'support/results.dart';
+
 void main() {
   const filesystem = LocalGraphicsFileSystem();
+  const noto = 'test/fixtures/fonts/NotoSans-Regular.ttf';
   group('TTF Rendering Tests', () {
     late List<File> fontFiles;
 
     setUpAll(() async {
-      final fontsDir = Directory('data/fonts');
+      final fontsDir = Directory('test/fixtures/fonts');
       fontFiles = fontsDir
           .listSync()
           .whereType<File>()
@@ -25,42 +28,38 @@ void main() {
       engine.clear(const Color(0xFFFFFFFF)); // White background
 
       for (final fontFile in fontFiles) {
-        final font = await TTFFont.loadFromFile(
-          fontFile.path,
-          filesystem: filesystem,
+        final font = ok(
+          await TTFFont.load(fontFile.path, filesystem: filesystem),
         );
         final testText = 'Test';
 
         // Get text path
-        final textPath = font.getTextPath(testText, 10, 50, 24.0);
+        final textPath = font.path(testText, 10, 50, 24.0);
 
         // Should be able to render without errors
-        engine.setFillColor(const Color(0xFF000000)); // Black text
+        engine.fillStyle = const Color(0xFF000000); // Black text
         expect(() => engine.fill(textPath), returnsNormally);
 
-        print('Successfully rendered "$testText" with ${font.familyName}');
+        print('Successfully rendered "$testText" with ${font.family}');
       }
     });
 
     test('text rendering produces non-empty paths', () async {
       for (final fontFile in fontFiles) {
-        final font = await TTFFont.loadFromFile(
-          fontFile.path,
-          filesystem: filesystem,
+        final font = ok(
+          await TTFFont.load(fontFile.path, filesystem: filesystem),
         );
 
         // Skip emoji fonts which may not have regular character glyphs
-        if (font.familyName.toLowerCase().contains('emoji')) {
-          print(
-            'Skipping path generation test for emoji font: ${font.familyName}',
-          );
+        if (font.family.toLowerCase().contains('emoji')) {
+          print('Skipping path generation test for emoji font: ${font.family}');
           continue;
         }
 
         final testTexts = ['A', 'Hello', '123', 'Test'];
 
         for (final text in testTexts) {
-          final path = font.getTextPath(text, 0, 0, 48.0);
+          final path = font.path(text, 0, 0, 48.0);
 
           if (text.trim().isNotEmpty) {
             // Skip whitespace-only text
@@ -81,23 +80,20 @@ void main() {
           }
         }
 
-        print('Path generation verified for ${font.familyName}');
+        print('Path generation verified for ${font.family}');
       }
     });
 
     test('different font sizes produce scaled paths', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(
-          fontFiles.first.path,
-          filesystem: filesystem,
-        );
+        final font = ok(await TTFFont.load(noto, filesystem: filesystem));
         final testText = 'A';
 
         final sizes = [12.0, 24.0, 48.0];
         final measurements = <double, TextMetrics>{};
 
         for (final size in sizes) {
-          final metrics = font.measureText(testText, size);
+          final metrics = font.measure(testText, size);
           measurements[size] = metrics;
 
           print(
@@ -133,15 +129,12 @@ void main() {
 
     test('text positioning works correctly', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(
-          fontFiles.first.path,
-          filesystem: filesystem,
-        );
+        final font = ok(await TTFFont.load(noto, filesystem: filesystem));
         final testText = 'AB';
 
         // Generate paths at different positions
-        final path1 = font.getTextPath(testText, 0, 0, 24.0);
-        final path2 = font.getTextPath(testText, 100, 50, 24.0);
+        final path1 = font.path(testText, 0, 0, 24.0);
+        final path2 = font.path(testText, 100, 50, 24.0);
 
         // Both should have commands
         expect(path1.commands.length, greaterThan(0));
@@ -165,15 +158,12 @@ void main() {
 
     test('empty text produces empty path', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(
-          fontFiles.first.path,
-          filesystem: filesystem,
-        );
+        final font = ok(await TTFFont.load(noto, filesystem: filesystem));
 
         final emptyTexts = ['', '   ', '\t', '\n'];
 
         for (final text in emptyTexts) {
-          final path = font.getTextPath(text, 0, 0, 24.0);
+          final path = font.path(text, 0, 0, 24.0);
           // Empty or whitespace-only text might produce empty paths or just moveTo commands
           // This is acceptable behavior
           expect(() => path.commands, returnsNormally);
@@ -184,10 +174,7 @@ void main() {
 
     test('special characters can be rendered', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(
-          fontFiles.first.path,
-          filesystem: filesystem,
-        );
+        final font = ok(await TTFFont.load(noto, filesystem: filesystem));
 
         final specialChars = [
           '!@#\$%^&*()',
@@ -199,13 +186,13 @@ void main() {
         ];
 
         for (final chars in specialChars) {
-          final path = font.getTextPath(chars, 0, 0, 24.0);
+          final path = font.path(chars, 0, 0, 24.0);
           expect(() => path.commands, returnsNormally);
 
           // Count how many characters actually have glyphs
           var glyphCount = 0;
           for (final char in chars.runes) {
-            if (font.hasGlyph(char)) {
+            if (font.covers(char)) {
               glyphCount++;
             }
           }
@@ -219,10 +206,7 @@ void main() {
 
     test('unicode characters are handled properly', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(
-          fontFiles.first.path,
-          filesystem: filesystem,
-        );
+        final font = ok(await TTFFont.load(noto, filesystem: filesystem));
 
         final unicodeTexts = [
           'café', // Latin with accents
@@ -233,13 +217,13 @@ void main() {
         ];
 
         for (final text in unicodeTexts) {
-          final path = font.getTextPath(text, 0, 0, 24.0);
+          final path = font.path(text, 0, 0, 24.0);
           expect(() => path.commands, returnsNormally);
 
           // Count supported characters
           var supportedCount = 0;
           for (final char in text.runes) {
-            if (font.hasGlyph(char)) {
+            if (font.covers(char)) {
               supportedCount++;
             }
           }
@@ -253,19 +237,16 @@ void main() {
 
     test('large text can be rendered', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(
-          fontFiles.first.path,
-          filesystem: filesystem,
-        );
+        final font = ok(await TTFFont.load(noto, filesystem: filesystem));
 
         // Test with longer text
         final longText = 'The quick brown fox jumps over the lazy dog. ' * 3;
-        final path = font.getTextPath(longText, 0, 0, 12.0);
+        final path = font.path(longText, 0, 0, 12.0);
 
         expect(path.commands.length, greaterThan(0));
         expect(() => path.commands, returnsNormally);
 
-        final metrics = font.measureText(longText, 12.0);
+        final metrics = font.measure(longText, 12.0);
         expect(metrics.width, greaterThan(100)); // Should be quite wide
 
         print(
@@ -276,17 +257,14 @@ void main() {
 
     test('font metrics scaling is consistent', () async {
       if (fontFiles.isNotEmpty) {
-        final font = await TTFFont.loadFromFile(
-          fontFiles.first.path,
-          filesystem: filesystem,
-        );
+        final font = ok(await TTFFont.load(noto, filesystem: filesystem));
         final testText = 'Test';
 
         // Test various font sizes
         final sizes = [8.0, 12.0, 16.0, 24.0, 36.0, 48.0, 72.0];
 
         for (final size in sizes) {
-          final metrics = font.measureText(testText, size);
+          final metrics = font.measure(testText, size);
 
           // Text height should be related to font metrics
           expect(metrics.height, greaterThan(0));

@@ -3,97 +3,349 @@ import 'dart:typed_data';
 
 import '../../paths/path.dart';
 import '../../point.dart';
+import '../../rectangle.dart';
 import '../rasterizer.dart';
 import '../../spans/span.dart';
 import '../../utils/curve_utils.dart';
 import '../../utils/math_utils.dart';
 
-/// Optimized edge with minimal state
+/// A flattened path segment, stored top to bottom
 class _Edge {
-  final double startX;
-  final double slope; // dx/dy
-  final int yMin;
-  final int yMax;
-  double x; // Current x position
+  final double x1;
+  final double y1;
+  final double x2;
+  final double y2;
+  final int direction; // +1 if the path runs down this edge, -1 if up
 
-  _Edge(Point p1, Point p2)
-    : startX = p1.x + (p2.x - p1.x) / (p2.y - p1.y) * (p1.y.ceil() - p1.y),
-      slope = (p2.x - p1.x) / (p2.y - p1.y),
-      yMin = p1.y.ceil(),
-      yMax = (p2.y - 0.00001).ceil() - 1,
-      x = p1.x + (p2.x - p1.x) / (p2.y - p1.y) * (p1.y.ceil() - p1.y);
+  /// Change in x per unit of y
+  final double slope;
+
+  /// Where the edge crosses the current sub-row, or its nearest end
+  double x = 0;
+
+  /// Where the edge crosses the top and bottom of the current band, or its
+  /// nearest end
+  double top = 0;
+  double bottom = 0;
+
+  _Edge(this.x1, this.y1, this.x2, this.y2, this.direction)
+    : slope = (x2 - x1) / (y2 - y1);
 }
 
-/// Basic optimized scanline rasterizer
+/// Scanline rasterizer. Each pixel row is split into bands at the edge ends
+/// inside it; where no two edges cross within a band, the fill rule is
+/// applied to the winding of each gap between edges and inside gaps add
+/// their exact area. A row where edges cross, or with more bands than [rows],
+/// is instead sampled at [rows] sub-rows: on each, the fill rule is applied
+/// to the winding between consecutive crossings and each inside run adds its
+/// exact horizontal extent. Coverage is therefore exact, or exact
+/// horizontally and within 1/[rows] vertically, whatever windings meet
+/// inside a pixel.
 class BasicRasterizer implements Rasterizer {
   static const int maxAlpha = 255;
+
+  /// Sub-rows sampled per pixel row
+  static const int rows = 16;
   final bool antiAlias;
 
   BasicRasterizer({this.antiAlias = true});
 
   @override
-  List<Span> rasterize(Path path) {
+  List<Span> rasterize(
+    Path path, {
+    FillRule rule = FillRule.evenOdd,
+    Rectangle<int>? viewport,
+  }) {
     if (path.commands.isEmpty) return [];
 
     // Flatten path to edges
-    final edges = _pathToEdges(path);
+    final edges = _flatten(path);
     if (edges.isEmpty) return [];
 
-    // Sort edges by yMin for efficient processing
-    edges.sort((a, b) => a.yMin.compareTo(b.yMin));
+    // Cells run from [origin] to [limit]; outside a viewport, from the
+    // path's own extent
+    var origin = edges.map((edge) => min(edge.x1, edge.x2)).reduce(min).floor();
+    var limit = edges.map((edge) => max(edge.x1, edge.x2)).reduce(max).ceil();
+    var top = edges.map((edge) => edge.y1).reduce(min).floor();
+    var bottom = edges.map((edge) => edge.y2).reduce(max).ceil();
+    if (viewport != null) {
+      origin = viewport.left;
+      limit = viewport.right;
+      top = max(top, viewport.top);
+      bottom = min(bottom, viewport.bottom);
+    }
+    if (limit <= origin || bottom <= top) return [];
+
+    edges.sort((a, b) => a.y1.compareTo(b.y1));
 
     final spans = <Span>[];
     final active = <_Edge>[];
-    int index = 0;
+    final visible = limit - origin;
+    final left = origin.toDouble();
+    final right = visible.toDouble();
+    final nonZero = rule == FillRule.nonZero;
+    const weight = 1 / rows;
+    // Changes in coverage along the row; a running sum gives each pixel's
+    // coverage
+    final cells = Float64List(visible + 2);
+    final band = <_Edge>[];
+    final events = <double>[];
+    var index = 0;
 
-    final minY = edges.first.yMin;
-    final maxY = edges.map((e) => e.yMax).reduce(max);
-
-    // Main scanline loop
-    for (int y = minY; y <= maxY; y++) {
-      // Add new edges starting at this scanline
-      while (index < edges.length && edges[index].yMin == y) {
+    for (var y = top; y < bottom; y++) {
+      while (index < edges.length && edges[index].y1 < y + 1) {
         active.add(edges[index++]);
       }
-
-      // Remove edges that ended
-      active.removeWhere((e) => y > e.yMax);
-
+      active.removeWhere((edge) => edge.y2 <= y);
       if (active.isEmpty) continue;
 
-      // Sort by X coordinate
-      active.sort((a, b) => a.x.compareTo(b.x));
-
-      // Generate spans for this scanline
-      if (antiAlias) {
-        _generateAntiAliasedSpans(y, active, spans);
-      } else {
-        _generateSimpleSpans(y, active, spans);
+      final range = _bands(
+        active,
+        y,
+        cells,
+        left,
+        right,
+        nonZero,
+        band,
+        events,
+      );
+      if (range != null) {
+        if (range.$2 >= range.$1) {
+          _sweep(cells, origin, visible, range.$1, range.$2, y, spans);
+        }
+        continue;
       }
 
-      // Advance edges to next scanline
-      for (final edge in active) {
-        edge.x += edge.slope;
+      var first = cells.length;
+      var last = -1;
+      for (var row = 0; row < rows; row++) {
+        final sample = y + (row + 0.5) / rows;
+        for (final edge in active) {
+          final at = sample < edge.y1
+              ? edge.y1
+              : sample > edge.y2
+              ? edge.y2
+              : sample;
+          edge.x = edge.x1 + edge.slope * (at - edge.y1);
+        }
+        _sort(active);
+
+        // Crossings are half-open in y, so a shared vertex counts once;
+        // crossings left of a viewport still change the winding
+        var winding = 0;
+        var from = 0.0;
+        for (final edge in active) {
+          if (sample < edge.y1 || sample >= edge.y2) continue;
+          if (nonZero ? winding != 0 : winding.isOdd) {
+            // The run in cell coordinates, inside the visible cells
+            var a = from - left;
+            var b = edge.x - left;
+            if (a < 0) a = 0;
+            if (b > right) b = right;
+            if (a < b) {
+              _run(cells, a, b, weight);
+              final start = a.floor();
+              final end = b.floor() + 1;
+              if (start < first) first = start;
+              if (end > last) last = end;
+            }
+          }
+          winding += edge.direction;
+          from = edge.x;
+        }
       }
+      if (last < first) continue;
+      _sweep(cells, origin, visible, first, last, y, spans);
     }
 
     return spans;
   }
 
-  List<_Edge> _pathToEdges(Path path) {
+  /// Exact coverage of row [y] when no two edges cross inside it. The row is
+  /// split into bands at the edge ends inside it; within a band the edge
+  /// order, and so the winding of each gap, is fixed, and each edge between
+  /// an inside gap and an outside one adds the exact area to its right.
+  /// Returns the range of cells touched, or null, with [cells] untouched, if
+  /// edges cross or the row has more bands than [rows].
+  static (int, int)? _bands(
+    List<_Edge> active,
+    int y,
+    Float64List cells,
+    double left,
+    double right,
+    bool nonZero,
+    List<_Edge> band,
+    List<double> events,
+  ) {
+    events
+      ..clear()
+      ..add(y.toDouble());
+    for (var i = 0; i < active.length; i++) {
+      final edge = active[i];
+      if (edge.y1 > y && edge.y1 < y + 1) events.add(edge.y1);
+      if (edge.y2 > y && edge.y2 < y + 1) events.add(edge.y2);
+    }
+    // Each band visits every active edge, so sub-rows are cheaper past
+    // [rows] bands
+    if (events.length > rows) return null;
+    events
+      ..add(y + 1.0)
+      ..sort();
+    var first = cells.length;
+    var last = -1;
+    for (var k = 1; k < events.length; k++) {
+      final t = events[k - 1];
+      final u = events[k];
+      if (u <= t) continue;
+      // Sorting every active edge, clamped to its ends, keeps the list
+      // nearly sorted from band to band
+      for (var i = 0; i < active.length; i++) {
+        final edge = active[i];
+        final a = t < edge.y1 ? edge.y1 : (t > edge.y2 ? edge.y2 : t);
+        final b = u < edge.y1 ? edge.y1 : (u > edge.y2 ? edge.y2 : u);
+        edge.top = edge.x1 + edge.slope * (a - edge.y1);
+        edge.bottom = edge.x1 + edge.slope * (b - edge.y1);
+        edge.x = 0.5 * (edge.top + edge.bottom);
+      }
+      _sort(active);
+      band.clear();
+      for (var i = 0; i < active.length; i++) {
+        final edge = active[i];
+        if (edge.y1 <= t && edge.y2 >= u) band.add(edge);
+      }
+      for (var i = 1; i < band.length; i++) {
+        if (band[i - 1].top > band[i].top + 1e-9 ||
+            band[i - 1].bottom > band[i].bottom + 1e-9) {
+          // Edges cross: undo and let the caller sample
+          if (last >= first) cells.fillRange(first, last + 1, 0);
+          return null;
+        }
+      }
+      var winding = 0;
+      var inside = false;
+      for (var i = 0; i < band.length; i++) {
+        final edge = band[i];
+        winding += edge.direction;
+        final now = nonZero ? winding != 0 : winding.isOdd;
+        if (now != inside) {
+          final a = edge.top - left;
+          final b = edge.bottom - left;
+          _segment(cells, right, a, b, now ? u - t : t - u);
+          // _segment moves parts outside the cells to the nearest side
+          final low = min(a, b).clamp(0.0, right).floor();
+          final high = max(a, b).clamp(0.0, right).floor() + 1;
+          if (low < first) first = low;
+          if (high > last) last = high;
+          inside = now;
+        }
+      }
+    }
+    return (first, last);
+  }
+
+  /// Adds the area right of the segment from [x0] to [x1], in cells, times
+  /// [height] to [cells]. Parts outside the cells move to the nearest side:
+  /// the area right of a part left of them still counts, and a part right of
+  /// them covers nothing visible.
+  static void _segment(
+    Float64List cells,
+    double right,
+    double x0,
+    double x1,
+    double height,
+  ) {
+    if (x0 >= 0 && x1 >= 0 && x0 <= right && x1 <= right) {
+      _accumulate(cells, x0, x1, height);
+      return;
+    }
+    // Split points as fractions of the segment, in order along it
+    final cuts = <double>[0];
+    for (final side in [0.0, right]) {
+      if ((x0 < side) != (x1 < side)) cuts.add((side - x0) / (x1 - x0));
+    }
+    cuts
+      ..add(1)
+      ..sort();
+    for (var i = 1; i < cuts.length; i++) {
+      _accumulate(
+        cells,
+        (x0 + (x1 - x0) * cuts[i - 1]).clamp(0.0, right),
+        (x0 + (x1 - x0) * cuts[i]).clamp(0.0, right),
+        height * (cuts[i] - cuts[i - 1]),
+      );
+    }
+  }
+
+  /// Exact signed-area accumulation of one segment within a row, in cell
+  /// coordinates, after font-rs. Each cell receives the change in coverage
+  /// from its left neighbour, so a running sum along the row gives each
+  /// pixel's signed coverage.
+  static void _accumulate(
+    Float64List cells,
+    double x0,
+    double x1,
+    double height,
+  ) {
+    final low = min(x0, x1);
+    final high = max(x0, x1);
+    final start = low.floor();
+    final end = high.ceil();
+    if (end <= start + 1) {
+      // Within one cell: split by the segment's mean position
+      final mean = 0.5 * (x0 + x1) - start;
+      cells[start] += height * (1 - mean);
+      cells[start + 1] += height * mean;
+      return;
+    }
+    final scale = 1 / (high - low);
+    final first = low - start;
+    final head = 0.5 * scale * (1 - first) * (1 - first);
+    final last = high - end + 1;
+    final tail = 0.5 * scale * last * last;
+    cells[start] += height * head;
+    if (end == start + 2) {
+      cells[start + 1] += height * (1 - head - tail);
+    } else {
+      final second = scale * (1.5 - first);
+      cells[start + 1] += height * (second - head);
+      for (var x = start + 2; x < end - 1; x++) {
+        cells[x] += height * scale;
+      }
+      final before = second + (end - start - 3) * scale;
+      cells[end - 1] += height * (1 - before - tail);
+    }
+    cells[end] += height * tail;
+  }
+
+  /// Insertion sort by crossing; the order changes little from one sub-row
+  /// to the next, so this is close to linear
+  static void _sort(List<_Edge> edges) {
+    for (var i = 1; i < edges.length; i++) {
+      final edge = edges[i];
+      var j = i - 1;
+      while (j >= 0 && edges[j].x > edge.x) {
+        edges[j + 1] = edges[j];
+        j--;
+      }
+      edges[j + 1] = edge;
+    }
+  }
+
+  List<_Edge> _flatten(Path path) {
     final edges = <_Edge>[];
     Point? start, current;
 
-    for (final cmd in path.commands) {
-      switch (cmd.type) {
+    for (final command in path.commands) {
+      switch (command.type) {
         case PathCommandType.moveTo:
-          current = start = cmd.points.first;
+          _close(edges, current, start);
+          current = start = command.points.first;
           break;
 
         case PathCommandType.lineTo:
           if (current != null) {
-            _addEdge(edges, current, cmd.points.first);
-            current = cmd.points.first;
+            _add(edges, current, command.points.first);
+            current = command.points.first;
           }
           break;
 
@@ -101,24 +353,24 @@ class BasicRasterizer implements Rasterizer {
           if (current != null) {
             final points = CurveUtils.flattenCubicBezier(
               current,
-              cmd.points[0],
-              cmd.points[1],
-              cmd.points[2],
+              command.points[0],
+              command.points[1],
+              command.points[2],
               tolerance: MathUtils.curveTolerance,
             );
             for (int i = 1; i < points.length; i++) {
-              _addEdge(edges, points[i - 1], points[i]);
+              _add(edges, points[i - 1], points[i]);
             }
-            current = cmd.points[2];
+            current = command.points[2];
           }
           break;
 
         case PathCommandType.arc:
-          final arc = cmd as ArcCommand;
+          final arc = command as ArcCommand;
           if (current != null) {
             final points = CurveUtils.tessellateArcCommand(current, arc);
             for (int i = 1; i < points.length; i++) {
-              _addEdge(edges, points[i - 1], points[i]);
+              _add(edges, points[i - 1], points[i]);
             }
           }
           current = MathUtils.circlePoint(
@@ -130,8 +382,8 @@ class BasicRasterizer implements Rasterizer {
           break;
 
         case PathCommandType.ellipse:
-          final ellipse = cmd as EllipseCommand;
-          final ellipseStart = MathUtils.ellipsePoint(
+          final ellipse = command as EllipseCommand;
+          final begin = MathUtils.ellipsePoint(
             ellipse.centerX,
             ellipse.centerY,
             ellipse.radiusX,
@@ -141,18 +393,15 @@ class BasicRasterizer implements Rasterizer {
           );
 
           if (current != null &&
-              ((current.x - ellipseStart.x).abs() > MathUtils.rasterTolerance ||
-                  (current.y - ellipseStart.y).abs() >
-                      MathUtils.rasterTolerance)) {
-            _addEdge(edges, current, ellipseStart);
+              ((current.x - begin.x).abs() > MathUtils.rasterTolerance ||
+                  (current.y - begin.y).abs() > MathUtils.rasterTolerance)) {
+            _add(edges, current, begin);
           }
 
-          final points = CurveUtils.tessellateEllipseCommand(
-            ellipseStart,
-            ellipse,
-          );
+          start ??= begin;
+          final points = CurveUtils.tessellateEllipseCommand(begin, ellipse);
           for (int i = 1; i < points.length; i++) {
-            _addEdge(edges, points[i - 1], points[i]);
+            _add(edges, points[i - 1], points[i]);
           }
 
           current = MathUtils.ellipsePoint(
@@ -166,132 +415,93 @@ class BasicRasterizer implements Rasterizer {
           break;
 
         case PathCommandType.close:
-          if (current != null && start != null) {
-            _addEdge(edges, current, start);
-          }
+          _close(edges, current, start);
           current = start = null;
           break;
       }
     }
 
+    // Filling closes every subpath
+    _close(edges, current, start);
     return edges;
   }
 
-  void _addEdge(List<_Edge> edges, Point p1, Point p2) {
-    // Skip horizontal edges
-    if ((p1.y - p2.y).abs() < MathUtils.rasterTolerance) return;
-
-    // Ensure p1 is above p2
-    if (p1.y > p2.y) {
-      final temp = p1;
-      p1 = p2;
-      p2 = temp;
-    }
-
-    final edge = _Edge(p1, p2);
-    if (edge.yMin <= edge.yMax) {
-      edges.add(edge);
+  void _close(List<_Edge> edges, Point? current, Point? start) {
+    if (current != null && start != null) {
+      _add(edges, current, start);
     }
   }
 
-  void _generateSimpleSpans(int y, List<_Edge> edges, List<Span> spans) {
-    // Even-odd fill rule: pair up edges
-    for (int i = 0; i < edges.length - 1; i += 2) {
-      final x1 = edges[i].x.round();
-      final x2 = edges[i + 1].x.round();
-      if (x2 > x1) {
-        spans.add(Span(y, x1, x2 - x1, maxAlpha));
-      }
+  void _add(List<_Edge> edges, final Point from, final Point to) {
+    // A horizontal edge encloses no area
+    if (from.y == to.y) return;
+
+    if (from.y < to.y) {
+      edges.add(_Edge(from.x, from.y, to.x, to.y, 1));
+    } else {
+      edges.add(_Edge(to.x, to.y, from.x, from.y, -1));
     }
   }
 
-  void _generateAntiAliasedSpans(int y, List<_Edge> edges, List<Span> spans) {
-    // Dynamic buffer sizing based on edge bounds
-    double minXFloat = double.infinity;
-    double maxXFloat = double.negativeInfinity;
-    for (final edge in edges) {
-      if (edge.x < minXFloat) minXFloat = edge.x;
-      if (edge.x > maxXFloat) maxXFloat = edge.x;
+  /// Adds coverage [weight] over the run from [a] to [b] (with a < b), in
+  /// cell coordinates, to [cells], which hold changes in coverage: partial
+  /// cells at the ends get their covered fraction. Changes cells from
+  /// floor(a) to floor(b) + 1.
+  static void _run(Float64List cells, double a, double b, double weight) {
+    final start = a.floor();
+    final end = b.floor();
+    final head = (start + 1 - a) * weight;
+    final tail = (b - end) * weight;
+    if (start == end) {
+      cells[start] += (b - a) * weight;
+      cells[start + 1] -= (b - a) * weight;
+      return;
     }
+    cells[start] += head;
+    cells[start + 1] += weight - head;
+    cells[end] += tail - weight;
+    cells[end + 1] -= tail;
+  }
 
-    final bufferStart = minXFloat.floor() - 1;
-    final bufferEnd = maxXFloat.ceil() + 1;
-    final bufferSize = bufferEnd - bufferStart + 1;
-
-    if (bufferSize <= 0) return;
-
-    final coverageBuffer = Float32List(bufferSize);
-    int minX = 999999;
-    int maxX = -1;
-
-    // Process edge pairs (even-odd fill)
-    for (int i = 0; i < edges.length - 1; i += 2) {
-      final x1 = edges[i].x;
-      final x2 = edges[i + 1].x;
-
-      if (x2 <= x1) continue;
-
-      final startPixel = x1.floor();
-      final endPixel = x2.ceil() - 1;
-
-      // Track bounds
-      if (startPixel < minX) minX = startPixel;
-      if (endPixel > maxX) maxX = endPixel;
-
-      // Accumulate coverage
-      for (int px = startPixel; px <= endPixel; px++) {
-        final bufferIndex = px - bufferStart;
-        if (bufferIndex < 0 || bufferIndex >= coverageBuffer.length) continue;
-
-        final pixelLeft = px.toDouble();
-        final pixelRight = (px + 1).toDouble();
-
-        final left = x1 > pixelLeft ? x1 : pixelLeft;
-        final right = x2 < pixelRight ? x2 : pixelRight;
-
-        if (right > left) {
-          coverageBuffer[bufferIndex] += right - left;
+  /// Turns the coverage changes in [cells] from [first] to [last] into spans
+  /// for row [y], and clears them.
+  void _sweep(
+    Float64List cells,
+    int origin,
+    int visible,
+    int first,
+    int last,
+    int y,
+    List<Span> spans,
+  ) {
+    var sum = 0.0;
+    var start = first;
+    var previous = 0;
+    for (var i = first; i <= last; i++) {
+      sum += cells[i];
+      cells[i] = 0;
+      if (i >= visible) continue;
+      final alpha = _alpha(sum);
+      if (alpha != previous) {
+        if (previous != 0) {
+          spans.add(Span(y, origin + start, i - start, previous));
         }
+        start = i;
+        previous = alpha;
       }
     }
-
-    // Convert coverage buffer to spans
-    if (minX <= maxX) {
-      int? spanStart;
-      int? lastAlpha;
-
-      for (int px = minX; px <= maxX; px++) {
-        final bufferIndex = px - bufferStart;
-        if (bufferIndex < 0 || bufferIndex >= coverageBuffer.length) continue;
-
-        final coverage = coverageBuffer[bufferIndex];
-        if (coverage == 0) {
-          // End current span if any
-          if (spanStart != null && lastAlpha != null) {
-            spans.add(Span(y, spanStart, px - spanStart, lastAlpha));
-            spanStart = null;
-          }
-          continue;
-        }
-
-        final alpha = (coverage.clamp(0.0, 1.0) * maxAlpha).round();
-
-        if (spanStart == null) {
-          // Start new span
-          spanStart = px;
-          lastAlpha = alpha;
-        } else if (alpha != lastAlpha) {
-          // End current span and start new one
-          spans.add(Span(y, spanStart, px - spanStart, lastAlpha!));
-          spanStart = px;
-          lastAlpha = alpha;
-        }
-      }
-
-      // Add final span
-      if (spanStart != null && lastAlpha != null) {
-        spans.add(Span(y, spanStart, maxX + 1 - spanStart, lastAlpha));
-      }
+    // Coverage is zero past the last changed cell
+    if (previous != 0) {
+      spans.add(
+        Span(y, origin + start, min(last + 1, visible) - start, previous),
+      );
     }
+  }
+
+  /// Alpha for a pixel with [coverage] between 0 and 1
+  int _alpha(double coverage) {
+    final clamped = coverage.clamp(0.0, 1.0);
+    if (!antiAlias) return clamped >= 0.5 ? maxAlpha : 0;
+    return (clamped * maxAlpha).round();
   }
 }

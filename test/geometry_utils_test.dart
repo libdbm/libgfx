@@ -1,15 +1,39 @@
 import 'dart:math' as math;
 
 import 'package:libgfx/src/paths/path.dart';
-import 'package:libgfx/src/paths/path_utils.dart';
 import 'package:libgfx/src/rectangle.dart';
 import 'package:test/test.dart';
 
 void main() {
+  group('Rectangle of either number type', () {
+    test('integer rectangles floor their half size', () {
+      final rectangle = Rectangle<int>.fromCenter(10, 10, 5, 4);
+      expect([
+        rectangle.left,
+        rectangle.top,
+        rectangle.width,
+        rectangle.height,
+      ], equals([8, 8, 5, 4]));
+      expect([rectangle.centerX, rectangle.centerY], equals([10, 10]));
+    });
+
+    test('double rectangles keep their exact centre', () {
+      final rectangle = Rectangle<double>.fromCenter(10, 10, 5, 4);
+      expect([rectangle.left, rectangle.top], equals([7.5, 8]));
+      expect([rectangle.centerX, rectangle.centerY], equals([10, 10]));
+    });
+
+    test('an empty rectangle of either type is at the origin', () {
+      expect(Rectangle.zero<int>().left, equals(0));
+      expect(Rectangle.zero<double>().left, equals(0));
+      expect(Rectangle.zero<double>().isEmpty, isTrue);
+    });
+  });
+
   group('GeometryUtils', () {
     group('Rectangle Creation', () {
       test('creates rectangle path', () {
-        final path = PathUtils.createRectangle(10, 20, 30, 40);
+        final path = PathBuilder().rect(10, 20, 30, 40).build();
 
         expect(path, isNotNull);
         expect(path.commands, isNotEmpty);
@@ -19,7 +43,7 @@ void main() {
       });
 
       test('creates rounded rectangle', () {
-        final path = PathUtils.createRoundedRectangle(10, 20, 30, 40, 5);
+        final path = PathBuilder().roundRect(10, 20, 30, 40, 5).build();
 
         expect(path, isNotNull);
         expect(path.commands, isNotEmpty);
@@ -29,15 +53,15 @@ void main() {
       });
 
       test('handles zero radius for rounded rectangle', () {
-        final rounded = PathUtils.createRoundedRectangle(10, 20, 30, 40, 0);
-        final regular = PathUtils.createRectangle(10, 20, 30, 40);
+        final rounded = PathBuilder().roundRect(10, 20, 30, 40, 0).build();
+        final regular = PathBuilder().rect(10, 20, 30, 40).build();
 
         // Should be equivalent to regular rectangle
         expect(rounded.commands.length, equals(regular.commands.length));
       });
 
       test('clamps radius to half of smallest dimension', () {
-        final path = PathUtils.createRoundedRectangle(10, 20, 30, 40, 50);
+        final path = PathBuilder().roundRect(10, 20, 30, 40, 50).build();
 
         // Radius should be clamped to 15 (half of width 30)
         expect(path, isNotNull);
@@ -45,7 +69,7 @@ void main() {
       });
 
       test('handles negative dimensions', () {
-        final path = PathUtils.createRectangle(10, 20, -30, -40);
+        final path = PathBuilder().rect(10, 20, -30, -40).build();
 
         // Should handle gracefully
         expect(path, isNotNull);
@@ -54,37 +78,35 @@ void main() {
     });
 
     group('Circle Creation', () {
-      test('creates circle path using bezier curves', () {
-        final path = PathUtils.createCircle(50, 50, 20);
+      test('creates circle path as one ellipse command', () {
+        final path = PathBuilder().circle(50, 50, 20).build();
 
         expect(path, isNotNull);
         expect(path.commands, isNotEmpty);
 
-        // Should have moveTo, 4 curveTo, and close
+        // PathBuilder.circle adds a full-turn ellipse command
         expect(
-          path.commands
-              .where((c) => c.type == PathCommandType.cubicCurveTo)
-              .length,
-          equals(4),
+          path.commands.where((c) => c.type == PathCommandType.ellipse).length,
+          equals(1),
         );
       });
 
       test('creates circle at origin', () {
-        final path = PathUtils.createCircle(0, 0, 10);
+        final path = PathBuilder().circle(0, 0, 10).build();
 
         expect(path, isNotNull);
         expect(path.commands, isNotEmpty);
       });
 
       test('handles zero radius circle', () {
-        final path = PathUtils.createCircle(50, 50, 0);
+        final path = PathBuilder().circle(50, 50, 0).build();
 
         expect(path, isNotNull);
         // Might be empty or have minimal commands
       });
 
       test('handles very large radius', () {
-        final path = PathUtils.createCircle(50, 50, 1000);
+        final path = PathBuilder().circle(50, 50, 1000).build();
 
         expect(path, isNotNull);
         expect(path.commands, isNotEmpty);
@@ -93,31 +115,37 @@ void main() {
 
     group('Ellipse Creation', () {
       test('creates ellipse path', () {
-        final path = PathUtils.createEllipse(50, 50, 30, 20);
+        final path = PathBuilder()
+            .ellipse(50, 50, 30, 20, 0, 0, 2 * math.pi)
+            .build();
 
         expect(path, isNotNull);
         expect(path.commands, isNotEmpty);
 
-        // Should use bezier curves
+        // PathBuilder.ellipse adds one ellipse command
         expect(
-          path.commands
-              .where((c) => c.type == PathCommandType.cubicCurveTo)
-              .length,
-          equals(4),
+          path.commands.where((c) => c.type == PathCommandType.ellipse).length,
+          equals(1),
         );
       });
 
       test('ellipse with equal radii equals circle', () {
-        final ellipse = PathUtils.createEllipse(50, 50, 20, 20);
-        final circle = PathUtils.createCircle(50, 50, 20);
+        final ellipse = PathBuilder()
+            .ellipse(50, 50, 20, 20, 0, 0, 2 * math.pi)
+            .build();
+        final circle = PathBuilder().circle(50, 50, 20).build();
 
         // Should have same structure
         expect(ellipse.commands.length, equals(circle.commands.length));
       });
 
       test('handles zero radius ellipse', () {
-        final path1 = PathUtils.createEllipse(50, 50, 0, 20);
-        final path2 = PathUtils.createEllipse(50, 50, 20, 0);
+        final path1 = PathBuilder()
+            .ellipse(50, 50, 0, 20, 0, 0, 2 * math.pi)
+            .build();
+        final path2 = PathBuilder()
+            .ellipse(50, 50, 20, 0, 0, 0, 2 * math.pi)
+            .build();
 
         expect(path1, isNotNull);
         expect(path2, isNotNull);
@@ -126,7 +154,7 @@ void main() {
 
     group('Polygon Creation', () {
       test('creates triangle', () {
-        final path = PathUtils.createPolygon(50, 50, 20, 3);
+        final path = PathBuilder().polygon(50, 50, 20, 3).build();
 
         expect(path, isNotNull);
         expect(path.commands, isNotEmpty);
@@ -139,7 +167,7 @@ void main() {
       });
 
       test('creates square', () {
-        final path = PathUtils.createPolygon(50, 50, 20, 4);
+        final path = PathBuilder().polygon(50, 50, 20, 4).build();
 
         expect(path, isNotNull);
         expect(path.commands, isNotEmpty);
@@ -152,7 +180,7 @@ void main() {
       });
 
       test('creates pentagon', () {
-        final path = PathUtils.createPolygon(50, 50, 20, 5);
+        final path = PathBuilder().polygon(50, 50, 20, 5).build();
 
         expect(path, isNotNull);
         expect(
@@ -162,7 +190,7 @@ void main() {
       });
 
       test('creates hexagon', () {
-        final path = PathUtils.createPolygon(50, 50, 20, 6);
+        final path = PathBuilder().polygon(50, 50, 20, 6).build();
 
         expect(path, isNotNull);
         expect(
@@ -173,21 +201,21 @@ void main() {
 
       test('throws for invalid polygon sides', () {
         expect(
-          () => PathUtils.createPolygon(50, 50, 20, 2),
+          () => PathBuilder().polygon(50, 50, 20, 2).build(),
           throwsArgumentError,
         );
         expect(
-          () => PathUtils.createPolygon(50, 50, 20, 1),
+          () => PathBuilder().polygon(50, 50, 20, 1).build(),
           throwsArgumentError,
         );
         expect(
-          () => PathUtils.createPolygon(50, 50, 20, 0),
+          () => PathBuilder().polygon(50, 50, 20, 0).build(),
           throwsArgumentError,
         );
       });
 
       test('polygon starts at top', () {
-        final path = PathUtils.createPolygon(50, 50, 20, 4);
+        final path = PathBuilder().polygon(50, 50, 20, 4).build();
 
         // First point should be at top (50, 30)
         final firstMove = path.commands.firstWhere(
@@ -200,7 +228,7 @@ void main() {
 
     group('Star Creation', () {
       test('creates 5-pointed star', () {
-        final path = PathUtils.createStar(50, 50, 30, 15, 5);
+        final path = PathBuilder().star(50, 50, 30, 15, 5).build();
 
         expect(path, isNotNull);
         expect(path.commands, isNotEmpty);
@@ -213,7 +241,7 @@ void main() {
       });
 
       test('creates 3-pointed star', () {
-        final path = PathUtils.createStar(50, 50, 30, 15, 3);
+        final path = PathBuilder().star(50, 50, 30, 15, 3).build();
 
         expect(path, isNotNull);
         expect(
@@ -224,17 +252,17 @@ void main() {
 
       test('throws for invalid star points', () {
         expect(
-          () => PathUtils.createStar(50, 50, 30, 15, 2),
+          () => PathBuilder().star(50, 50, 30, 15, 2).build(),
           throwsArgumentError,
         );
         expect(
-          () => PathUtils.createStar(50, 50, 30, 15, 0),
+          () => PathBuilder().star(50, 50, 30, 15, 0).build(),
           throwsArgumentError,
         );
       });
 
       test('handles inner radius larger than outer', () {
-        final path = PathUtils.createStar(50, 50, 15, 30, 5);
+        final path = PathBuilder().star(50, 50, 15, 30, 5).build();
 
         // Should still create a valid path
         expect(path, isNotNull);
@@ -244,29 +272,28 @@ void main() {
 
     group('Arc Creation', () {
       test('creates arc path', () {
-        final path = PathUtils.createArc(50, 50, 20, 0, math.pi, true);
+        final path = PathBuilder().arc(50, 50, 20, 0, math.pi, !true).build();
 
         expect(path, isNotNull);
         expect(path.commands, isNotEmpty);
       });
 
       test('creates full circle arc', () {
-        final path = PathUtils.createArc(50, 50, 20, 0, 2 * math.pi, true);
+        final path = PathBuilder()
+            .arc(50, 50, 20, 0, 2 * math.pi, !true)
+            .build();
 
         expect(path, isNotNull);
         expect(path.commands, isNotEmpty);
       });
 
       test('handles clockwise and counter-clockwise', () {
-        final clockwise = PathUtils.createArc(50, 50, 20, 0, math.pi / 2, true);
-        final counterClockwise = PathUtils.createArc(
-          50,
-          50,
-          20,
-          0,
-          math.pi / 2,
-          false,
-        );
+        final clockwise = PathBuilder()
+            .arc(50, 50, 20, 0, math.pi / 2, !true)
+            .build();
+        final counterClockwise = PathBuilder()
+            .arc(50, 50, 20, 0, math.pi / 2, !false)
+            .build();
 
         expect(clockwise, isNotNull);
         expect(counterClockwise, isNotNull);
@@ -277,7 +304,7 @@ void main() {
       });
 
       test('handles zero sweep angle', () {
-        final path = PathUtils.createArc(50, 50, 20, 0, 0, true);
+        final path = PathBuilder().arc(50, 50, 20, 0, 0, !true).build();
 
         expect(path, isNotNull);
         // Might be empty or minimal
@@ -312,27 +339,29 @@ void main() {
 
     group('Edge Cases', () {
       test('handles zero dimensions', () {
-        final rect = PathUtils.createRectangle(10, 10, 0, 0);
+        final rect = PathBuilder().rect(10, 10, 0, 0).build();
         expect(rect, isNotNull);
 
-        final circle = PathUtils.createCircle(10, 10, 0);
+        final circle = PathBuilder().circle(10, 10, 0).build();
         expect(circle, isNotNull);
 
-        final ellipse = PathUtils.createEllipse(10, 10, 0, 0);
+        final ellipse = PathBuilder()
+            .ellipse(10, 10, 0, 0, 0, 0, 2 * math.pi)
+            .build();
         expect(ellipse, isNotNull);
       });
 
       test('handles negative dimensions', () {
-        final rect = PathUtils.createRectangle(10, 10, -20, -30);
+        final rect = PathBuilder().rect(10, 10, -20, -30).build();
         expect(rect, isNotNull);
         expect(rect.commands, isNotEmpty);
       });
 
       test('handles very large dimensions', () {
-        final rect = PathUtils.createRectangle(0, 0, 1e6, 1e6);
+        final rect = PathBuilder().rect(0, 0, 1e6, 1e6).build();
         expect(rect, isNotNull);
 
-        final circle = PathUtils.createCircle(0, 0, 1e6);
+        final circle = PathBuilder().circle(0, 0, 1e6).build();
         expect(circle, isNotNull);
       });
     });

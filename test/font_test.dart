@@ -3,7 +3,9 @@ import 'dart:typed_data';
 import 'package:test/test.dart';
 
 import '../lib/src/fonts/font.dart';
+import '../lib/src/fonts/font_fallback.dart';
 import '../lib/src/fonts/ttf/ttf_font.dart';
+import '../lib/src/result.dart';
 import '../lib/src/text/text_types.dart'
     show TextAlign, TextBaseline, TextMetrics;
 
@@ -116,9 +118,14 @@ void main() {
         data.setUint8(i, 0);
       }
 
-      // This should not crash but will likely fail during table loading
-      // since we don't have all required tables (hhea, maxp, name, cmap, hmtx)
-      expect(() => TTFFont.fromBytes(bytes), throwsA(isA<FormatException>()));
+      // Loading fails because required tables (hhea, maxp, name, cmap, hmtx)
+      // are missing; the failure is returned, not thrown
+      final result = TTFFont.fromBytes(bytes);
+      expect(result, isA<Err<TTFFont, ErrorDetails>>());
+      expect(
+        (result as Err<TTFFont, ErrorDetails>).error.kind,
+        equals(ErrorKind.malformed),
+      );
     });
 
     test('Font enums are properly defined', () {
@@ -129,4 +136,30 @@ void main() {
       expect(TextBaseline.alphabetic, isA<TextBaseline>());
     });
   });
+
+  group('Font fallback outside the BMP', () {
+    test('find looks up the first code point, not a surrogate', () {
+      final basic = _Covering({0x41});
+      final emoji = _Covering({0x1F600});
+      final chain = FontFallbackChain()
+        ..add(basic)
+        ..add(emoji);
+      expect(chain.find('\u{1F600}x'), same(emoji));
+      expect(chain.find('A'), same(basic));
+    });
+  });
+}
+
+/// A font that covers [points] and nothing else; it draws nothing
+class _Covering implements Font {
+  final Set<int> points;
+
+  _Covering(this.points);
+
+  @override
+  bool covers(final int codePoint) => points.contains(codePoint);
+
+  @override
+  dynamic noSuchMethod(final Invocation invocation) =>
+      throw UnimplementedError();
 }

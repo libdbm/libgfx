@@ -246,11 +246,31 @@ void main() {
 
         final result = BlendModes.blend(src, dst, BlendMode.softLight);
 
-        // Should create soft lighting effect
+        // W3C compositing-1 soft-light: 192 over 64 gives 96
         expect(result.alpha, equals(255));
-        // Soft light can produce various results depending on implementation
-        expect(result.red, greaterThanOrEqualTo(32));
-        expect(result.red, lessThan(192));
+        expect(result.red, closeTo(96, 1));
+      });
+
+      test('softLight matches the W3C formula in both branches', () {
+        // (source, backdrop, expected) computed from the W3C definition
+        const cases = [
+          (255, 128, 181),
+          (255, 32, 88),
+          (200, 200, 215),
+          (64, 128, 96),
+          (0, 128, 64),
+          (128, 128, 128),
+          (255, 0, 0),
+          (255, 255, 255),
+          (0, 0, 0),
+        ];
+        for (final (source, backdrop, expected) in cases) {
+          expect(
+            BlendModes.softLightFunc(source, backdrop),
+            closeTo(expected, 1),
+            reason: 'softLight($source, $backdrop)',
+          );
+        }
       });
 
       test('difference shows absolute difference', () {
@@ -312,6 +332,21 @@ void main() {
         },
       );
 
+      test('an opaque source over any destination is the source', () {
+        // Source alpha 255 leaves nothing of the destination: out = src
+        final src = Color.fromARGB(255, 200, 100, 7);
+        for (final alpha in [0, 1, 128, 254, 255]) {
+          for (final channel in [0, 99, 255]) {
+            final dst = Color.fromARGB(alpha, channel, 255 - channel, 50);
+            expect(
+              BlendModes.blend(src, dst, BlendMode.srcOver).value,
+              equals(src.value),
+              reason: 'alpha $alpha, channel $channel',
+            );
+          }
+        }
+      });
+
       test('blending two semi-transparent colors', () {
         final src = Color.fromARGB(128, 255, 0, 0); // 50% red
         final dst = Color.fromARGB(128, 0, 255, 0); // 50% green
@@ -340,6 +375,99 @@ void main() {
           expect(result.blue, greaterThanOrEqualTo(0));
           expect(result.blue, lessThanOrEqualTo(255));
         }
+      });
+    });
+
+    group('Partial coverage', () {
+      const red = Color(0xFFFF0000);
+      const blue = Color(0xFF0000FF);
+
+      Color cover(final BlendMode mode, final Color source) {
+        final bitmap = Bitmap(1, 1)..clear(red);
+        bitmap.shade(0, 1, 0, 64, source, Matrix2D.identity(), mode);
+        return bitmap.pixel(0, 0);
+      }
+
+      test('clear at coverage 64 removes only a quarter of the pixel', () {
+        final result = cover(BlendMode.clear, blue);
+
+        expect(result.alpha, closeTo(191, 1));
+        expect(result.red, closeTo(255, 1));
+      });
+
+      test('src at coverage 64 replaces only a quarter of the pixel', () {
+        final result = cover(BlendMode.src, blue);
+
+        expect(result.alpha, equals(255));
+        expect(result.red, closeTo(191, 1));
+        expect(result.blue, closeTo(64, 1));
+      });
+
+      test('srcOver at coverage 64 matches source alpha scaling', () {
+        final result = cover(BlendMode.srcOver, blue);
+
+        expect(result.alpha, equals(255));
+        expect(result.red, closeTo(191, 1));
+        expect(result.blue, closeTo(64, 1));
+      });
+    });
+
+    group('Pixel storage', () {
+      Color draw(final Color background) {
+        final engine = GraphicsEngine(1, 1)
+          ..clear(background)
+          ..fillStyle = const Color(0x80FF0000)
+          ..fillRect(0, 0, 1, 1);
+        return engine.pixel(0, 0);
+      }
+
+      test('pixels are stored as straight, not premultiplied, ARGB', () {
+        // Half-transparent red over nothing keeps full-intensity red; a
+        // premultiplied store would hold red 128
+        final pixel = draw(const Color(0x00000000));
+        expect(pixel.alpha, closeTo(128, 1));
+        expect(pixel.red, closeTo(255, 1));
+        expect([pixel.green, pixel.blue], equals([0, 0]));
+      });
+
+      test('compositing weights colours by alpha', () {
+        // Half-transparent red over opaque green mixes them evenly
+        final pixel = draw(const Color(0xFF00FF00));
+        expect(pixel.alpha, equals(255));
+        expect(pixel.red, closeTo(128, 1));
+        expect(pixel.green, closeTo(127, 1));
+      });
+    });
+
+    group('Global alpha', () {
+      Color draw(final BlendMode mode) {
+        final engine = GraphicsEngine(1, 1)
+          ..clear(const Color(0xFFFF0000))
+          ..globalAlpha = 0.5
+          ..globalCompositeOperation = mode
+          ..fillStyle = const Color(0xFF0000FF)
+          ..fillRect(0, 0, 1, 1);
+        return engine.pixel(0, 0);
+      }
+
+      test('clear ignores global alpha and clears the pixel', () {
+        expect(draw(BlendMode.clear).alpha, equals(0));
+      });
+
+      test('src replaces the pixel with the half-transparent source', () {
+        final result = draw(BlendMode.src);
+
+        expect(result.alpha, closeTo(128, 1));
+        expect(result.blue, equals(255));
+        expect(result.red, equals(0));
+      });
+
+      test('srcOver blends the half-transparent source over the pixel', () {
+        final result = draw(BlendMode.srcOver);
+
+        expect(result.alpha, equals(255));
+        expect(result.red, closeTo(127, 1));
+        expect(result.blue, closeTo(128, 1));
       });
     });
   });

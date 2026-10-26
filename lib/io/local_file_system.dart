@@ -10,7 +10,7 @@ class LocalGraphicsFileSystem implements GraphicsFileSystem {
   const LocalGraphicsFileSystem();
 
   @override
-  Future<Uint8List?> readFile(String path) async {
+  Future<Uint8List?> read(String path) async {
     final file = File(path);
     if (!await file.exists()) {
       return null;
@@ -19,7 +19,7 @@ class LocalGraphicsFileSystem implements GraphicsFileSystem {
   }
 
   @override
-  Future<void> writeFile(String path, List<int> bytes) async {
+  Future<void> write(String path, List<int> bytes) async {
     final file = File(path);
     final directory = file.parent;
     if (!await directory.exists()) {

@@ -1,5 +1,6 @@
 import 'package:libgfx/libgfx.dart';
 import 'package:libgfx/src/graphics_context.dart';
+import 'package:libgfx/src/spans/span.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -16,13 +17,10 @@ void main() {
       test('initializes with default state', () {
         final state = context.state;
 
-        expect(state.fillPaint, isA<SolidPaint>());
-        expect((state.fillPaint as SolidPaint).color.value, equals(0xFF000000));
-        expect(state.strokePaint, isA<SolidPaint>());
-        expect(
-          (state.strokePaint as SolidPaint).color.value,
-          equals(0xFF000000),
-        );
+        expect(state.fillPaint, isA<Color>());
+        expect((state.fillPaint as Color).value, equals(0xFF000000));
+        expect(state.strokePaint, isA<Color>());
+        expect((state.strokePaint as Color).value, equals(0xFF000000));
         expect(state.strokeWidth, equals(1.0));
         expect(state.blendMode, equals(BlendMode.srcOver));
         expect(state.transform.isIdentity, isTrue);
@@ -30,44 +28,38 @@ void main() {
 
       test('save pushes state onto stack', () {
         // Modify current state
-        context.state.fillPaint = SolidPaint(Color(0xFFFF0000));
+        context.state.fillPaint = Color(0xFFFF0000);
         context.state.strokeWidth = 5.0;
 
         // Save state
         context.save();
 
         // Modify again
-        context.state.fillPaint = SolidPaint(Color(0xFF00FF00));
+        context.state.fillPaint = Color(0xFF00FF00);
         context.state.strokeWidth = 10.0;
 
         // Current state should have new values
-        expect(
-          (context.state.fillPaint as SolidPaint).color.value,
-          equals(0xFF00FF00),
-        );
+        expect((context.state.fillPaint as Color).value, equals(0xFF00FF00));
         expect(context.state.strokeWidth, equals(10.0));
       });
 
       test('restore pops state from stack', () {
         // Set initial values
-        context.state.fillPaint = SolidPaint(Color(0xFFFF0000));
+        context.state.fillPaint = Color(0xFFFF0000);
         context.state.strokeWidth = 5.0;
 
         // Save state
         context.save();
 
         // Modify
-        context.state.fillPaint = SolidPaint(Color(0xFF00FF00));
+        context.state.fillPaint = Color(0xFF00FF00);
         context.state.strokeWidth = 10.0;
 
         // Restore
         context.restore();
 
         // Should have original values
-        expect(
-          (context.state.fillPaint as SolidPaint).color.value,
-          equals(0xFFFF0000),
-        );
+        expect((context.state.fillPaint as Color).value, equals(0xFFFF0000));
         expect(context.state.strokeWidth, equals(5.0));
       });
 
@@ -131,7 +123,7 @@ void main() {
           ..lineTo(90, 10)
           ..lineTo(90, 90)
           ..lineTo(10, 90)
-          ..close();
+          ..closePath();
 
         context.clip(clipPath.build());
         final originalClip = context.state.clipRegion;
@@ -150,27 +142,27 @@ void main() {
 
     group('Drawing Operations', () {
       test('fills path with solid color', () {
-        context.state.fillPaint = SolidPaint(Color(0xFFFF0000));
+        context.state.fillPaint = Color(0xFFFF0000);
 
         final path = PathBuilder()
           ..moveTo(10, 10)
           ..lineTo(30, 10)
           ..lineTo(30, 30)
           ..lineTo(10, 30)
-          ..close();
+          ..closePath();
 
         context.fill(path.build());
 
         // Check that pixels were filled
         // Note: bitmap coordinates are Y-flipped
         final centerY = bitmap.height - 1 - 20;
-        expect(bitmap.getPixel(20, centerY).value, equals(0xFFFF0000));
+        expect(bitmap.pixel(20, centerY).value, equals(0xFFFF0000));
         final outsideY = bitmap.height - 1 - 5;
-        expect(bitmap.getPixel(5, outsideY).value, equals(0)); // Outside
+        expect(bitmap.pixel(5, outsideY).value, equals(0)); // Outside
       });
 
       test('strokes path with solid color', () {
-        context.state.strokePaint = SolidPaint(Color(0xFF00FF00));
+        context.state.strokePaint = Color(0xFF00FF00);
         context.state.strokeWidth = 2.0;
 
         final path = PathBuilder()
@@ -178,7 +170,7 @@ void main() {
           ..lineTo(40, 20)
           ..lineTo(40, 40)
           ..lineTo(20, 40)
-          ..close();
+          ..closePath();
 
         context.stroke(path.build());
 
@@ -189,7 +181,7 @@ void main() {
         for (int y = 8; y < 42; y++) {
           for (int x = 8; x < 42; x++) {
             final flippedY = bitmap.height - 1 - y;
-            if (bitmap.getPixel(x, flippedY).value != 0) {
+            if (bitmap.pixel(x, flippedY).value != 0) {
               hasStroke = true;
               break;
             }
@@ -200,7 +192,7 @@ void main() {
       });
 
       test('applies transform to drawing', () {
-        context.state.fillPaint = SolidPaint(Color(0xFFFF0000));
+        context.state.fillPaint = Color(0xFFFF0000);
         context.state.transform.translate(20, 20);
 
         final path = PathBuilder()
@@ -208,15 +200,15 @@ void main() {
           ..lineTo(10, 0)
           ..lineTo(10, 10)
           ..lineTo(0, 10)
-          ..close();
+          ..closePath();
 
         context.fill(path.build());
 
         // Rectangle should be drawn at (20,20) not (0,0) (Y-flipped)
         final transY = bitmap.height - 1 - 25;
         final outsideY = bitmap.height - 1 - 5;
-        expect(bitmap.getPixel(25, transY).value, equals(0xFFFF0000));
-        expect(bitmap.getPixel(5, outsideY).value, equals(0));
+        expect(bitmap.pixel(25, transY).value, equals(0xFFFF0000));
+        expect(bitmap.pixel(5, outsideY).value, equals(0));
       });
 
       test('applies blend mode', () {
@@ -224,7 +216,7 @@ void main() {
         bitmap.clear(Color(0xFF0000FF));
 
         // Set blend mode to multiply
-        context.state.fillPaint = SolidPaint(Color(0xFFFF0000));
+        context.state.fillPaint = Color(0xFFFF0000);
         context.state.blendMode = BlendMode.multiply;
 
         final path = PathBuilder()
@@ -232,13 +224,13 @@ void main() {
           ..lineTo(30, 10)
           ..lineTo(30, 30)
           ..lineTo(10, 30)
-          ..close();
+          ..closePath();
 
         context.fill(path.build());
 
         // Multiplying red with blue should give black (Y-flipped)
         final resultY = bitmap.height - 1 - 20;
-        final result = bitmap.getPixel(20, resultY);
+        final result = bitmap.pixel(20, resultY);
         // Multiply mode might have slight variations
         expect(result.value, closeTo(0xFF000000, 256));
       });
@@ -252,31 +244,31 @@ void main() {
           ..lineTo(40, 20)
           ..lineTo(40, 40)
           ..lineTo(20, 40)
-          ..close();
+          ..closePath();
 
         context.clip(clipPath.build());
 
         // Try to fill entire canvas
-        context.state.fillPaint = SolidPaint(Color(0xFFFF0000));
+        context.state.fillPaint = Color(0xFFFF0000);
         final fillPath = PathBuilder()
           ..moveTo(0, 0)
           ..lineTo(100, 0)
           ..lineTo(100, 100)
           ..lineTo(0, 100)
-          ..close();
+          ..closePath();
 
         context.fill(fillPath.build());
 
         // Only clipped area should be filled (Y-flipped)
         final clipY = bitmap.height - 1 - 30;
         expect(
-          bitmap.getPixel(30, clipY).value,
+          bitmap.pixel(30, clipY).value,
           equals(0xFFFF0000),
         ); // Inside clip
         final outsideY1 = bitmap.height - 1 - 10;
         final outsideY2 = bitmap.height - 1 - 50;
-        expect(bitmap.getPixel(10, outsideY1).value, equals(0)); // Outside clip
-        expect(bitmap.getPixel(50, outsideY2).value, equals(0)); // Outside clip
+        expect(bitmap.pixel(10, outsideY1).value, equals(0)); // Outside clip
+        expect(bitmap.pixel(50, outsideY2).value, equals(0)); // Outside clip
       });
 
       test('saves and restores clip state', () {
@@ -286,7 +278,7 @@ void main() {
           ..lineTo(50, 10)
           ..lineTo(50, 50)
           ..lineTo(10, 50)
-          ..close();
+          ..closePath();
 
         context.clip(clip1.build());
 
@@ -298,18 +290,18 @@ void main() {
           ..lineTo(40, 20)
           ..lineTo(40, 40)
           ..lineTo(20, 40)
-          ..close();
+          ..closePath();
 
         context.clip(clip2.build());
 
         // Fill - should be clipped to intersection
-        context.state.fillPaint = SolidPaint(Color(0xFFFF0000));
+        context.state.fillPaint = Color(0xFFFF0000);
         final fillPath = PathBuilder()
           ..moveTo(0, 0)
           ..lineTo(100, 0)
           ..lineTo(100, 100)
           ..lineTo(0, 100)
-          ..close();
+          ..closePath();
 
         context.fill(fillPath.build());
 
@@ -319,7 +311,7 @@ void main() {
         for (int y = 20; y <= 40; y++) {
           for (int x = 20; x <= 40; x++) {
             final flippedY = bitmap.height - 1 - y;
-            if (bitmap.getPixel(x, flippedY).value == 0xFFFF0000) {
+            if (bitmap.pixel(x, flippedY).value == 0xFFFF0000) {
               hasPixels = true;
               break;
             }
@@ -336,20 +328,17 @@ void main() {
         // Clear and fill again
         bitmap.clear(Color(0));
         // Make sure we still have red paint after restore
-        context.state.fillPaint = SolidPaint(Color(0xFFFF0000));
+        context.state.fillPaint = Color(0xFFFF0000);
         context.fill(fillPath.build());
 
         // Now should be clipped only to first region (Y-flipped)
         final insideY = bitmap.height - 1 - 15;
         final outsideY = bitmap.height - 1 - 5;
         expect(
-          bitmap.getPixel(15, insideY).value,
+          bitmap.pixel(15, insideY).value,
           equals(0xFFFF0000),
         ); // Inside first clip
-        expect(
-          bitmap.getPixel(5, outsideY).value,
-          equals(0),
-        ); // Outside all clips
+        expect(bitmap.pixel(5, outsideY).value, equals(0)); // Outside all clips
       });
 
       test('rectangular clip convenience method', () {
@@ -358,35 +347,32 @@ void main() {
           ..lineTo(50, 20)
           ..lineTo(50, 50)
           ..lineTo(20, 50)
-          ..close();
+          ..closePath();
         context.clip(clipPath.build());
 
-        context.state.fillPaint = SolidPaint(Color(0xFF00FF00));
+        context.state.fillPaint = Color(0xFF00FF00);
         final path = PathBuilder()
           ..moveTo(0, 0)
           ..lineTo(100, 0)
           ..lineTo(100, 100)
           ..lineTo(0, 100)
-          ..close();
+          ..closePath();
 
         context.fill(path.build());
 
         // Check clipping (Y-flipped coordinates)
         final insideY = bitmap.height - 1 - 30;
         final outsideY = bitmap.height - 1 - 10;
-        expect(
-          bitmap.getPixel(30, insideY).value,
-          equals(0xFF00FF00),
-        ); // Inside
-        expect(bitmap.getPixel(10, outsideY).value, equals(0)); // Outside
+        expect(bitmap.pixel(30, insideY).value, equals(0xFF00FF00)); // Inside
+        expect(bitmap.pixel(10, outsideY).value, equals(0)); // Outside
       });
     });
 
     group('Paint Types', () {
       test('fills with gradient paint', () {
         final gradient = LinearGradient(
-          startPoint: Point(0, 0),
-          endPoint: Point(50, 0),
+          start: Point(0, 0),
+          end: Point(50, 0),
           stops: [
             ColorStop(0.0, Color(0xFFFF0000)),
             ColorStop(1.0, Color(0xFF0000FF)),
@@ -400,17 +386,17 @@ void main() {
           ..lineTo(60, 10)
           ..lineTo(60, 30)
           ..lineTo(10, 30)
-          ..close();
+          ..closePath();
 
         context.fill(path.build());
 
         // Left side should be more red (Y-flipped)
         final yCoord = bitmap.height - 1 - 20;
-        final leftColor = bitmap.getPixel(15, yCoord);
+        final leftColor = bitmap.pixel(15, yCoord);
         expect(leftColor.red, greaterThan(170));
 
         // Right side should be more blue
-        final rightColor = bitmap.getPixel(55, yCoord);
+        final rightColor = bitmap.pixel(55, yCoord);
         expect(rightColor.blue, greaterThan(170));
       });
 
@@ -431,7 +417,7 @@ void main() {
           ..lineTo(50, 10)
           ..lineTo(50, 50)
           ..lineTo(10, 50)
-          ..close();
+          ..closePath();
 
         context.fill(path.build());
 
@@ -442,7 +428,7 @@ void main() {
         for (int y = 20; y <= 40; y++) {
           for (int x = 20; x <= 40; x++) {
             final flippedY = bitmap.height - 1 - y;
-            final color = bitmap.getPixel(x, flippedY);
+            final color = bitmap.pixel(x, flippedY);
             if (color.alpha > 0) {
               hasGradient = true;
               final brightness = (color.red + color.green + color.blue) ~/ 3;
@@ -482,7 +468,7 @@ void main() {
           ..lineTo(50, 10)
           ..lineTo(50, 50)
           ..lineTo(10, 50)
-          ..close();
+          ..closePath();
 
         context.fill(path.build());
 
@@ -490,9 +476,9 @@ void main() {
         final y15 = bitmap.height - 1 - 15;
         final y25 = bitmap.height - 1 - 25;
         final y35 = bitmap.height - 1 - 35;
-        expect(bitmap.getPixel(15, y15).value, equals(0xFFFF00FF));
-        expect(bitmap.getPixel(25, y25).value, equals(0xFFFF00FF));
-        expect(bitmap.getPixel(35, y35).value, equals(0xFFFF00FF));
+        expect(bitmap.pixel(15, y15).value, equals(0xFFFF00FF));
+        expect(bitmap.pixel(25, y25).value, equals(0xFFFF00FF));
+        expect(bitmap.pixel(35, y35).value, equals(0xFFFF00FF));
       });
     });
 
@@ -500,8 +486,8 @@ void main() {
       test('combines multiple operations', () {
         // Set up gradient fill
         final gradient = LinearGradient(
-          startPoint: Point(0, 20),
-          endPoint: Point(0, 40),
+          start: Point(0, 20),
+          end: Point(0, 40),
           stops: [
             ColorStop(0.0, Color(0xFFFF0000)),
             ColorStop(1.0, Color(0xFF00FF00)),
@@ -515,11 +501,11 @@ void main() {
           ..lineTo(45, 15)
           ..lineTo(45, 45)
           ..lineTo(15, 45)
-          ..close();
+          ..closePath();
         context.clip(clipPath.build());
 
         // Apply transform
-        context.state.transform.rotateZ(0.1);
+        context.state.transform.rotate(0.1);
 
         // Draw
         final drawPath = PathBuilder()
@@ -527,7 +513,7 @@ void main() {
           ..lineTo(50, 20)
           ..lineTo(50, 40)
           ..lineTo(10, 40)
-          ..close();
+          ..closePath();
         context.fill(drawPath.build());
 
         // Should have drawn something (Y-flipped)
@@ -535,7 +521,7 @@ void main() {
         for (int y = 15; y < 45; y++) {
           for (int x = 15; x < 45; x++) {
             final flippedY = bitmap.height - 1 - y;
-            if (bitmap.getPixel(x, flippedY).alpha > 0) {
+            if (bitmap.pixel(x, flippedY).alpha > 0) {
               hasPixels = true;
               break;
             }
@@ -553,7 +539,7 @@ void main() {
           ..lineTo(80, 0)
           ..lineTo(80, 80)
           ..lineTo(0, 80)
-          ..close();
+          ..closePath();
         context.clip(clipPath1.build());
 
         context.save(); // Save 2
@@ -563,29 +549,29 @@ void main() {
           ..lineTo(30, 0)
           ..lineTo(30, 30)
           ..lineTo(0, 30)
-          ..close();
+          ..closePath();
         context.clip(clipPath2.build());
 
         context.save(); // Save 3
-        context.state.transform.rotateZ(0.5);
+        context.state.transform.rotate(0.5);
 
         // Draw at each level
-        context.state.fillPaint = SolidPaint(Color(0xFFFF0000));
+        context.state.fillPaint = Color(0xFFFF0000);
         final path = PathBuilder()
           ..moveTo(0, 0)
           ..lineTo(10, 0)
           ..lineTo(10, 10)
           ..lineTo(0, 10)
-          ..close();
+          ..closePath();
 
         context.fill(path.build());
 
         context.restore(); // Back to Save 2
-        context.state.fillPaint = SolidPaint(Color(0xFF00FF00));
+        context.state.fillPaint = Color(0xFF00FF00);
         context.fill(path.build());
 
         context.restore(); // Back to Save 1
-        context.state.fillPaint = SolidPaint(Color(0xFF0000FF));
+        context.state.fillPaint = Color(0xFF0000FF);
         context.fill(path.build());
 
         context.restore(); // Back to initial
@@ -598,7 +584,7 @@ void main() {
 
         for (int y = 0; y < 100; y++) {
           for (int x = 0; x < 100; x++) {
-            final color = bitmap.getPixel(x, y);
+            final color = bitmap.pixel(x, y);
             if (color.red > 200 && color.green < 50) hasRed = true;
             if (color.green > 200 && color.red < 50) hasGreen = true;
             if (color.blue > 200 && color.red < 50) hasBlue = true;
@@ -611,7 +597,7 @@ void main() {
 
     group('Edge Cases', () {
       test('handles empty path', () {
-        context.state.fillPaint = SolidPaint(Color(0xFFFF0000));
+        context.state.fillPaint = Color(0xFFFF0000);
 
         final emptyPath = PathBuilder().build();
 
@@ -624,7 +610,7 @@ void main() {
         bool isEmpty = true;
         for (int y = 0; y < bitmap.height && isEmpty; y++) {
           for (int x = 0; x < bitmap.width && isEmpty; x++) {
-            if (bitmap.getPixel(x, y).value != 0) {
+            if (bitmap.pixel(x, y).value != 0) {
               isEmpty = false;
             }
           }
@@ -633,14 +619,14 @@ void main() {
       });
 
       test('handles path entirely outside canvas', () {
-        context.state.fillPaint = SolidPaint(Color(0xFFFF0000));
+        context.state.fillPaint = Color(0xFFFF0000);
 
         final path = PathBuilder()
           ..moveTo(200, 200)
           ..lineTo(250, 200)
           ..lineTo(250, 250)
           ..lineTo(200, 250)
-          ..close();
+          ..closePath();
 
         context.fill(path.build());
 
@@ -649,7 +635,7 @@ void main() {
         bool isEmpty = true;
         for (int y = 0; y < bitmap.height && isEmpty; y++) {
           for (int x = 0; x < bitmap.width && isEmpty; x++) {
-            if (bitmap.getPixel(x, y).value != 0) {
+            if (bitmap.pixel(x, y).value != 0) {
               isEmpty = false;
             }
           }
@@ -659,20 +645,223 @@ void main() {
 
       test('handles very large transform', () {
         context.state.transform.scale(1000, 1000);
-        context.state.fillPaint = SolidPaint(Color(0xFFFF0000));
+        context.state.fillPaint = Color(0xFFFF0000);
 
         final path = PathBuilder()
           ..moveTo(0, 0)
           ..lineTo(0.1, 0)
           ..lineTo(0.1, 0.1)
           ..lineTo(0, 0.1)
-          ..close();
+          ..closePath();
 
         context.fill(path.build());
 
         // Should fill entire canvas
-        expect(bitmap.getPixel(50, 50).value, equals(0xFFFF0000));
+        expect(bitmap.pixel(50, 50).value, equals(0xFFFF0000));
       });
     });
   });
+
+  group('Exception safety', () {
+    test('stroke restores the fill paint when painting throws', () {
+      final context = GraphicsContext(Bitmap(20, 20));
+      final original = const Color(0xFF123456);
+      context.state.fillPaint = original;
+      context.state.strokePaint = _ExplodingPaint();
+      final path =
+          (PathBuilder()
+                ..moveTo(2, 2)
+                ..lineTo(18, 18))
+              .build();
+
+      expect(() => context.stroke(path), throwsStateError);
+
+      expect(context.state.fillPaint, same(original));
+    });
+
+    test('clearRect restores the blend mode when painting throws', () {
+      final engine = GraphicsEngine(4, 4)..fillStyle = _ExplodingPaint();
+
+      expect(() => engine.clearRect(0, 0, 4, 4), throwsStateError);
+
+      engine
+        ..fillStyle = const Color(0xFFFF0000)
+        ..fillRect(0, 0, 4, 4);
+      expect(engine.pixel(1, 1).value, equals(0xFFFF0000));
+    });
+  });
+
+  group('Viewport', () {
+    final square =
+        (PathBuilder()
+              ..moveTo(-1e7, -1e7)
+              ..lineTo(1e7, -1e7)
+              ..lineTo(1e7, 1e7)
+              ..lineTo(-1e7, 1e7)
+              ..closePath())
+            .build();
+
+    test('fill and clip rasterize only inside the bitmap', () {
+      final rasterizer = _RecordingRasterizer();
+      final context = GraphicsContext(Bitmap(4, 3), rasterizer: rasterizer);
+      context.fill(square);
+      expect(rasterizer.viewports, equals([const Rectangle<int>(0, 0, 4, 3)]));
+    });
+
+    test('a path far larger than the bitmap paints every pixel', () {
+      final bitmap = Bitmap(4, 4);
+      final context = GraphicsContext(bitmap)
+        ..clip(square)
+        ..fill(square);
+      expect(bitmap.pixels.every((pixel) => pixel == 0xFF000000), isTrue);
+      expect(
+        context.state.clipRegion!.bounds,
+        const Rectangle<int>(0, 0, 4, 4),
+      );
+    });
+  });
+
+  group('Singular transforms', () {
+    int painted(final GraphicsEngine engine) {
+      var count = 0;
+      for (var y = 0; y < engine.canvas.height; y++) {
+        for (var x = 0; x < engine.canvas.width; x++) {
+          if (engine.pixel(x, y).alpha != 0) count++;
+        }
+      }
+      return count;
+    }
+
+    test('fills and strokes under a singular transform paint nothing', () {
+      final engine = GraphicsEngine(20, 20)
+        ..scale(0, 1)
+        ..fillStyle = const Color(0xFFFF0000)
+        ..fillRect(2, 2, 10, 10)
+        ..lineWidth = 4
+        ..strokeRect(2, 2, 10, 10);
+      expect(painted(engine), equals(0));
+    });
+
+    test('a gradient fill under a singular transform paints nothing', () {
+      final engine = GraphicsEngine(20, 20)
+        ..transform(1, 1, 1, 1, 0, 0)
+        ..fillStyle = LinearGradient(
+          start: Point(0, 0),
+          end: Point(10, 0),
+          stops: [
+            ColorStop(0, const Color(0xFFFF0000)),
+            ColorStop(1, const Color(0xFF0000FF)),
+          ],
+        )
+        ..fillRect(2, 2, 10, 10);
+      expect(painted(engine), equals(0));
+    });
+  });
+
+  group('Self-overlapping strokes', () {
+    test('overlapping segments have the edges of one segment', () {
+      GraphicsEngine draw(final Path path) => GraphicsEngine(40, 20)
+        ..lineWidth = 6
+        ..lineCap = LineCap.round
+        ..stroke(path);
+      final overlapping = draw(
+        (PathBuilder()
+              ..moveTo(5, 10.3)
+              ..lineTo(20, 10.3)
+              ..moveTo(18, 10.3)
+              ..lineTo(35, 10.3))
+            .build(),
+      );
+      final single = draw(
+        (PathBuilder()
+              ..moveTo(5, 10.3)
+              ..lineTo(35, 10.3))
+            .build(),
+      );
+      // Column 19 lies inside both segments, away from their caps
+      for (var y = 0; y < 20; y++) {
+        expect(
+          overlapping.pixel(19, y).alpha,
+          closeTo(single.pixel(19, y).alpha, 1),
+          reason: 'row $y',
+        );
+      }
+    });
+  });
+
+  group('Fill rule', () {
+    // Two squares wound the same way: the inner one is a hole only under
+    // even-odd
+    final nested =
+        (PathBuilder()
+              ..moveTo(0, 0)
+              ..lineTo(8, 0)
+              ..lineTo(8, 8)
+              ..lineTo(0, 8)
+              ..closePath()
+              ..moveTo(2, 2)
+              ..lineTo(6, 2)
+              ..lineTo(6, 6)
+              ..lineTo(2, 6)
+              ..closePath())
+            .build();
+    const black = 0xFF000000;
+
+    test('fill defaults to non-zero', () {
+      final engine = GraphicsEngine(8, 8)..fill(nested);
+      expect(engine.pixel(4, 4).value, equals(black));
+      expect(engine.pixel(1, 1).value, equals(black));
+    });
+
+    test('fill honours each rule', () {
+      final nonZero = GraphicsEngine(8, 8)
+        ..fill(nested, rule: FillRule.nonZero);
+      final evenOdd = GraphicsEngine(8, 8)
+        ..fill(nested, rule: FillRule.evenOdd);
+      expect(nonZero.pixel(4, 4).value, equals(black));
+      expect(evenOdd.pixel(4, 4).value, isNot(black));
+      expect(evenOdd.pixel(1, 1).value, equals(black));
+    });
+
+    test('overlapping round caps of adjacent dashes stay filled', () {
+      final engine = GraphicsEngine(200, 100)
+        ..strokeStyle = Color(black)
+        ..lineWidth = 20
+        ..lineCap = LineCap.round
+        ..setLineDash([30, 10])
+        ..stroke(
+          (PathBuilder()
+                ..moveTo(10, 50)
+                ..lineTo(190, 50))
+              .build(),
+        );
+      // The first dash ends at x=40 and the second starts at x=50; both caps
+      // cover the gap between them
+      for (final x in [42, 45, 48]) {
+        expect(engine.pixel(x, 50).value, equals(black), reason: 'x=$x');
+      }
+    });
+  });
+}
+
+/// Records the viewport of each rasterize call.
+class _RecordingRasterizer implements Rasterizer {
+  final viewports = <Rectangle<int>?>[];
+
+  @override
+  List<Span> rasterize(
+    final Path path, {
+    final FillRule rule = FillRule.evenOdd,
+    final Rectangle<int>? viewport,
+  }) {
+    viewports.add(viewport);
+    return const [];
+  }
+}
+
+/// A paint whose sampling always fails.
+class _ExplodingPaint extends Paint {
+  @override
+  Color sample(Point point, Matrix2D inverse) =>
+      throw StateError('paint failed');
 }

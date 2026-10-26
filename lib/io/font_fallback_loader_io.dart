@@ -3,10 +3,11 @@ import 'dart:io';
 import '../src/fonts/font_fallback.dart';
 import '../src/io/file_system.dart';
 import '../src/logging.dart';
+import '../src/result.dart';
 
 import 'local_file_system.dart';
 
-const List<String> _commonFonts = [
+const List<String> _defaults = [
   'Arial',
   'Helvetica',
   'Times',
@@ -20,7 +21,7 @@ const List<String> _commonFonts = [
   'Roboto',
 ];
 
-const Map<String, List<String>> _systemFontPaths = {
+const Map<String, List<String>> _directories = {
   'macos': ['/System/Library/Fonts/', '/Library/Fonts/', '~/Library/Fonts/'],
   'darwin': ['/System/Library/Fonts/', '/Library/Fonts/', '~/Library/Fonts/'],
   'linux': [
@@ -38,39 +39,34 @@ Future<FontFallbackChain> loadSystemFontsImpl({
   GraphicsFileSystem? filesystem,
 }) async {
   final chain = FontFallbackChain();
-  final fs = filesystem ?? const LocalGraphicsFileSystem();
+  final system = filesystem ?? const LocalGraphicsFileSystem();
   final platform = Platform.operatingSystem;
-  final searchPaths = _systemFontPaths[platform] ?? [];
+  final directories = _directories[platform] ?? [];
 
-  final fontsToLoad = preferredFonts ?? _commonFonts;
+  final names = preferredFonts ?? _defaults;
   var loaded = 0;
 
-  for (final fontName in fontsToLoad) {
+  for (final name in names) {
     if (loaded >= maxFonts) break;
 
-    for (final basePath in searchPaths) {
-      final expandedPath = basePath.replaceFirst(
+    // The first file that loads, through the file system, wins the name;
+    // a missing or unreadable file moves on to the next candidate
+    search:
+    for (final base in directories) {
+      final directory = base.replaceFirst(
         '~',
         Platform.environment['HOME'] ?? '',
       );
 
-      for (final ext in ['.ttf', '.otf', '.TTF', '.OTF']) {
-        final fontPath = '$expandedPath$fontName$ext';
-        final file = File(fontPath);
-
-        if (await file.exists()) {
-          try {
-            await chain.addFontFromFile(fontPath, filesystem: fs);
-            loaded++;
-            logger.info('Loaded system font: $fontPath');
-            break;
-          } catch (_) {
-            // Continue searching for other fonts/extensions
-          }
+      for (final extension in ['.ttf', '.otf', '.TTF', '.OTF']) {
+        final path = '$directory$name$extension';
+        final result = await chain.load(path, filesystem: system);
+        if (result is Ok) {
+          loaded++;
+          logger.info('Loaded system font: $path');
+          break search;
         }
       }
-
-      if (loaded >= maxFonts) break;
     }
   }
 

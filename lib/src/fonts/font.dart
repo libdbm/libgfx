@@ -4,13 +4,13 @@ import '../text/text_types.dart' show TextMetrics;
 /// Represents a font face with metrics and glyph access
 abstract class Font {
   /// The font family name (e.g., "Arial", "Times New Roman")
-  String get familyName;
+  String get family;
 
   /// The font style name (e.g., "Regular", "Bold", "Italic")
-  String get styleName;
+  String get style;
 
   /// The full font name combining family and style
-  String get fullName => '$familyName $styleName';
+  String get name => '$family $style';
 
   /// Units per em square (typically 1000 or 2048 for TrueType fonts)
   int get unitsPerEm;
@@ -19,25 +19,37 @@ abstract class Font {
   FontMetrics get metrics;
 
   /// Check if the font contains a glyph for the given character
-  bool hasGlyph(int codePoint);
+  bool covers(final int codePoint);
 
   /// Get the glyph index for a character code point
-  int getGlyphIndex(int codePoint);
+  int glyph(final int codePoint);
 
   /// Get glyph metrics for a specific glyph index
-  GlyphMetrics getGlyphMetrics(int glyphIndex);
+  GlyphMetrics dimensions(final int glyph);
 
   /// Get the path outline for a glyph at the specified size
-  Path getGlyphPath(int glyphIndex, double fontSize);
+  Path outline(final int glyph, final double size);
 
   /// Get kerning adjustment between two glyph indices
-  double getKerning(int leftGlyphIndex, int rightGlyphIndex, double fontSize);
+  double kerning(final int left, final int right, final double size);
 
   /// Measure text dimensions
-  TextMetrics measureText(String text, double fontSize);
+  TextMetrics measure(final String text, final double size);
 
   /// Get the path for rendering text
-  Path getTextPath(String text, double x, double y, double fontSize);
+  Path path(
+    final String text,
+    final double x,
+    final double y,
+    final double size,
+  );
+
+  /// [glyphs] with the font's ligatures applied: each result is a glyph and
+  /// the number of [glyphs] it stands for. A font without ligatures returns
+  /// each glyph standing for itself.
+  List<(int, int)> ligate(final List<int> glyphs) => [
+    for (final glyph in glyphs) (glyph, 1),
+  ];
 }
 
 /// Font metrics (ascender, descender, line gap, etc.)
@@ -77,8 +89,8 @@ class FontMetrics {
   int get lineHeight => ascender - descender + lineGap;
 
   /// Scale metrics to a specific font size
-  FontMetrics scale(double fontSize, int unitsPerEm) {
-    final scale = fontSize / unitsPerEm;
+  FontMetrics scale(final double size, int unitsPerEm) {
+    final scale = size / unitsPerEm;
     return FontMetrics(
       ascender: (ascender * scale).round(),
       descender: (descender * scale).round(),
@@ -117,8 +129,8 @@ class GlyphMetrics {
   });
 
   /// Scale metrics to a specific font size
-  GlyphMetrics scale(double fontSize, int unitsPerEm) {
-    final scale = fontSize / unitsPerEm;
+  GlyphMetrics scale(final double size, int unitsPerEm) {
+    final scale = size / unitsPerEm;
     return GlyphMetrics(
       advanceWidth: (advanceWidth * scale).round(),
       advanceHeight: (advanceHeight * scale).round(),

@@ -5,57 +5,49 @@ import 'state_base.dart';
 
 /// Manages paint and styling state
 class PaintState extends StateBase<PaintState> {
-  Paint _fillPaint;
-  Paint _strokePaint;
-  BlendMode _blendMode;
-  double _globalAlpha;
+  Paint _fill;
+  Paint _stroke;
+  BlendMode _mode;
+  double _alpha;
 
   PaintState({
     Paint? fillPaint,
     Paint? strokePaint,
     BlendMode blendMode = BlendMode.srcOver,
     double globalAlpha = 1.0,
-  }) : _fillPaint = fillPaint ?? SolidPaint(const Color(0xFF000000)),
-       _strokePaint = strokePaint ?? SolidPaint(const Color(0xFF000000)),
-       _blendMode = blendMode,
-       _globalAlpha = globalAlpha.clamp(0.0, 1.0);
+  }) : _fill = fillPaint ?? const Color(0xFF000000),
+       _stroke = strokePaint ?? const Color(0xFF000000),
+       _mode = blendMode,
+       _alpha = globalAlpha.clamp(0.0, 1.0);
 
-  Paint get fillPaint => _fillPaint;
-  Paint get strokePaint => _strokePaint;
-  BlendMode get blendMode => _blendMode;
-  double get globalAlpha => _globalAlpha;
+  Paint get fillPaint => _fill;
+  Paint get strokePaint => _stroke;
+  BlendMode get blendMode => _mode;
+  double get globalAlpha => _alpha;
 
   void setFillPaint(Paint paint) {
-    _fillPaint = paint;
+    _fill = paint;
   }
 
   void setStrokePaint(Paint paint) {
-    _strokePaint = paint;
-  }
-
-  void setFillColor(Color color) {
-    _fillPaint = SolidPaint(color);
-  }
-
-  void setStrokeColor(Color color) {
-    _strokePaint = SolidPaint(color);
+    _stroke = paint;
   }
 
   void setBlendMode(BlendMode mode) {
-    _blendMode = mode;
+    _mode = mode;
   }
 
   void setGlobalAlpha(double alpha) {
-    _globalAlpha = alpha.clamp(0.0, 1.0);
+    _alpha = alpha.clamp(0.0, 1.0);
   }
 
   @override
   PaintState clone() {
     return PaintState(
-      fillPaint: _fillPaint,
-      strokePaint: _strokePaint,
-      blendMode: _blendMode,
-      globalAlpha: _globalAlpha,
+      fillPaint: _fill,
+      strokePaint: _stroke,
+      blendMode: _mode,
+      globalAlpha: _alpha,
     );
   }
 }

@@ -12,20 +12,20 @@ class SpanClipper extends SpanProcessor {
 
   @override
   List<Span> process(List<Span> spans) {
-    final clippedSpans = <Span>[];
+    final result = <Span>[];
 
     for (final span in spans) {
-      final clipped = _clipSpan(span, 0, width, 0, height);
+      final clipped = _clip(span, 0, width, 0, height);
       if (clipped != null) {
-        clippedSpans.add(clipped);
+        result.add(clipped);
       }
     }
 
-    return clippedSpans;
+    return result;
   }
 
   /// Clip a span to viewport bounds
-  Span? _clipSpan(Span span, int minX, int maxX, int minY, int maxY) {
+  Span? _clip(Span span, int minX, int maxX, int minY, int maxY) {
     // Check if span is outside viewport vertically
     if (span.y < minY || span.y >= maxY) return null;
 

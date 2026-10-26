@@ -129,11 +129,11 @@ void main() {
       matrix.translate(10.0, 20.0);
       matrix.scale(2.0, 3.0);
 
-      matrix.invert();
+      final inverse = (matrix.inverse() as Ok<Matrix2D, ErrorDetails>).value;
 
       // Inverse should undo the transformations
       final point = Point(20.0, 50.0);
-      final inverted = matrix.transform(point);
+      final inverted = inverse.transform(point);
 
       // Should get back close to (5, 10)
       expect(inverted.x, closeTo(5.0, 1e-10));
@@ -222,7 +222,7 @@ void main() {
       matrix.translate(10.0, 20.0);
       matrix.scale(2.0, 3.0);
 
-      final inverse = matrix.inverse();
+      final inverse = (matrix.inverse() as Ok<Matrix2D, ErrorDetails>).value;
 
       // Original should not be modified
       expect(matrix.tx, equals(10.0));
@@ -254,7 +254,7 @@ void main() {
       matrix.scale(2.0, 3.0);
 
       final vector = Point(10.0, 20.0);
-      final transformed = matrix.transformVector(vector);
+      final transformed = matrix.direction(vector);
 
       // Should only apply scale, not translation
       expect(transformed.x, equals(20.0));
@@ -263,7 +263,7 @@ void main() {
 
     test('setTransform method', () {
       final matrix = Matrix2D.identity();
-      matrix.setTransform(50.0, 100.0, math.pi / 4, 2.0, 3.0);
+      matrix.assign(50.0, 100.0, math.pi / 4, 2.0, 3.0);
 
       // Check translation components
       expect(matrix.tx, equals(50.0));
@@ -298,16 +298,28 @@ void main() {
       final matrix = Matrix2D(1.0, 0.0, 1.0, 0.0, 0.0, 0.0); // Determinant = 0
       expect(matrix.isInvertible, isFalse);
 
-      final success = matrix.invert();
-      expect(success, isFalse);
+      final result = matrix.inverse();
+      expect(result, isA<Err<Matrix2D, ErrorDetails>>());
+      expect(
+        (result as Err<Matrix2D, ErrorDetails>).error.kind,
+        equals(ErrorKind.singular),
+      );
 
-      // Matrix should be set to identity when not invertible (for numerical stability)
-      expect(matrix.a, equals(1.0));
-      expect(matrix.b, equals(0.0));
-      expect(matrix.c, equals(0.0));
-      expect(matrix.d, equals(1.0));
-      expect(matrix.tx, equals(0.0));
-      expect(matrix.ty, equals(0.0));
+      // The matrix itself is left unchanged
+      expect(matrix, equals(Matrix2D(1.0, 0.0, 1.0, 0.0, 0.0, 0.0)));
+    });
+
+    test('decompose returns translation, rotation and scale', () {
+      final matrix =
+          Matrix2D.translation(3, 4) *
+          Matrix2D.rotation(math.pi / 6) *
+          Matrix2D.scaling(2, 5);
+      final (:translation, :rotation, :scale) = matrix.decompose();
+      expect(translation.x, closeTo(3, 1e-9));
+      expect(translation.y, closeTo(4, 1e-9));
+      expect(rotation, closeTo(math.pi / 6, 1e-9));
+      expect(scale.x, closeTo(2, 1e-9));
+      expect(scale.y, closeTo(5, 1e-9));
     });
   });
 }

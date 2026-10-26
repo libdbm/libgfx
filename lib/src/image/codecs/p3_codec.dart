@@ -3,6 +3,9 @@ import 'dart:typed_data';
 import '../bitmap.dart';
 import '../../color/color.dart';
 import '../image_codec.dart';
+import '../../result.dart';
+import '../../limits.dart';
+import 'pnm_tokenizer.dart';
 
 /// PPM image codec (P3 ASCII format)
 class P3ImageCodec extends ImageCodec {
@@ -13,33 +16,26 @@ class P3ImageCodec extends ImageCodec {
   }
 
   @override
-  Bitmap decode(Uint8List bytes) {
-    final contents = String.fromCharCodes(bytes);
-    final tokens = contents
-        .replaceAll(RegExp(r'#.*'), '')
-        .split(RegExp(r'\s+'));
-    tokens.removeWhere((s) => s.isEmpty);
+  Result<Bitmap, ErrorDetails> decode(
+    Uint8List bytes, {
+    Limits limits = const Limits(),
+  }) => ImageCodec.guard(() => _decode(bytes, limits));
 
-    if (tokens.isEmpty || tokens[0] != 'P3') {
-      throw FormatException('Not a valid PPM P3 file.');
-    }
-
-    final width = int.parse(tokens[1]);
-    final height = int.parse(tokens[2]);
-    // tokens[3] is max value (usually 255)
+  Bitmap _decode(Uint8List bytes, Limits limits) {
+    final tokenizer = PnmTokenizer(bytes);
+    final (:width, :height, :maxval) = tokenizer.header('P3', limits);
 
     final bitmap = Bitmap(width, height);
-    int pixelIndex = 0;
-
-    for (
-      int i = 4;
-      i < tokens.length - 2 && pixelIndex < width * height;
-      i += 3
-    ) {
-      final r = int.parse(tokens[i]);
-      final g = int.parse(tokens[i + 1]);
-      final b = int.parse(tokens[i + 2]);
-      bitmap.pixels[pixelIndex++] = Color.fromARGB(255, r, g, b).value;
+    for (int i = 0; i < width * height; i++) {
+      final r = tokenizer.number(0, 65535, 'sample');
+      final g = tokenizer.number(0, 65535, 'sample');
+      final b = tokenizer.number(0, 65535, 'sample');
+      bitmap.pixels[i] = Color.fromARGB(
+        255,
+        PnmTokenizer.scale(r, maxval),
+        PnmTokenizer.scale(g, maxval),
+        PnmTokenizer.scale(b, maxval),
+      ).value;
     }
 
     return bitmap;
@@ -49,17 +45,17 @@ class P3ImageCodec extends ImageCodec {
   Uint8List encode(Bitmap bitmap) {
     final buffer = StringBuffer();
     buffer.writeln('P3\n${bitmap.width} ${bitmap.height}\n255');
-    int lineCharCount = 0;
+    int column = 0;
 
     for (final pixel in bitmap.pixels) {
       final color = Color(pixel);
-      final pixelString = '${color.red} ${color.green} ${color.blue} ';
-      if (lineCharCount + pixelString.length > 70) {
+      final text = '${color.red} ${color.green} ${color.blue} ';
+      if (column + text.length > 70) {
         buffer.writeln();
-        lineCharCount = 0;
+        column = 0;
       }
-      buffer.write(pixelString);
-      lineCharCount += pixelString.length;
+      buffer.write(text);
+      column += text.length;
     }
 
     return Uint8List.fromList(buffer.toString().codeUnits);

@@ -9,8 +9,15 @@ Future<void> main() async {
   print('============================\n');
 
   const filesystem = LocalGraphicsFileSystem();
-  final engine = GraphicsEngine(1200, 900, filesystem: filesystem);
+  // Drawn at twice the size, for high-DPI screens; the drawing below is in
+  // page units
+  final engine = GraphicsEngine(2 * 1200, 2 * 900, filesystem: filesystem)
+    ..scale(2, 2);
   engine.clear(const Color(0xFFFAFAFA));
+
+  // The layout below is measured from the top of the page down; graphics
+  // space is Y-up, so at(y) turns a distance from the top into a y
+  double at(final double y) => 900 - y;
 
   // Initialize font fallback chain
   final fallbackChain = FontFallbackChain();
@@ -43,7 +50,7 @@ Future<void> main() async {
   int loadedFonts = 0;
   for (final fontPath in fontPaths) {
     try {
-      await fallbackChain.addFontFromFile(fontPath, filesystem: filesystem);
+      await fallbackChain.load(fontPath, filesystem: filesystem);
       print('  ✓ Loaded: ${fontPath.split('/').last}');
       loadedFonts++;
     } catch (e) {
@@ -53,7 +60,7 @@ Future<void> main() async {
         // Try without Noto prefix
         try {
           final altPath = fontPath.replaceAll('Noto', '');
-          await fallbackChain.addFontFromFile(altPath, filesystem: filesystem);
+          await fallbackChain.load(altPath, filesystem: filesystem);
           print('  ✓ Loaded alternative: ${altPath.split('/').last}');
           loadedFonts++;
         } catch (e2) {
@@ -71,23 +78,36 @@ Future<void> main() async {
     print('\nLoaded $loadedFonts fonts successfully.\n');
   }
 
-  // Title
-  engine.setFillColor(const Color(0xFF2C3E50));
-  final titlePath = unicodeRenderer.renderUnicodeText(
-    'Unicode Text Rendering Demonstration',
-    600,
-    40,
+  // Title, centred
+  engine.fillStyle = const Color(0xFF2C3E50);
+  const title = 'Unicode Text Rendering Demonstration';
+  final titlePath = unicodeRenderer.layout(
+    title,
+    600 - unicodeRenderer.extent(title, 28).width / 2,
+    at(48),
     28.0,
   );
-  engine.fill(titlePath);
+  engine.fill(titlePath, text: true);
 
   // Draw section backgrounds
-  _drawSectionBackground(engine, 20, 70, 560, 200, 'World Languages');
-  _drawSectionBackground(engine, 600, 70, 580, 200, 'Writing Systems');
-  _drawSectionBackground(engine, 20, 290, 560, 180, 'Complex Scripts');
-  _drawSectionBackground(engine, 600, 290, 580, 180, 'Special Characters');
-  _drawSectionBackground(engine, 20, 490, 1160, 140, 'Mixed Content');
-  _drawSectionBackground(engine, 20, 650, 1160, 220, 'Text Effects');
+  for (final (x, y, width, height, name) in [
+    (20.0, 70.0, 560.0, 200.0, 'World Languages'),
+    (600.0, 70.0, 580.0, 200.0, 'Writing Systems'),
+    (20.0, 290.0, 560.0, 180.0, 'Complex Scripts'),
+    (600.0, 290.0, 580.0, 180.0, 'Special Characters'),
+    (20.0, 490.0, 1160.0, 140.0, 'Mixed Content'),
+    (20.0, 650.0, 1160.0, 220.0, 'Text Effects'),
+  ]) {
+    _drawSectionBackground(
+      engine,
+      unicodeRenderer,
+      x,
+      at(y + height),
+      width,
+      height,
+      name,
+    );
+  }
 
   // Section 1: World Languages
   print('Rendering world languages...');
@@ -102,24 +122,19 @@ Future<void> main() async {
     ('Polish', 'Pchnąć w tę łódź jeża lub ośm skrzyń fig'),
   ];
 
-  double yPos = 100;
+  double yPos = 115;
   for (final (lang, text) in worldLanguages) {
     // Language label
-    engine.setFillColor(const Color(0xFF7F8C8D));
-    final labelPath = unicodeRenderer.renderUnicodeText(
-      '$lang:',
-      30,
-      yPos,
-      11.0,
-    );
-    engine.fill(labelPath);
+    engine.fillStyle = const Color(0xFF7F8C8D);
+    final labelPath = unicodeRenderer.layout('$lang:', 30, at(yPos), 11.0);
+    engine.fill(labelPath, text: true);
 
     // Text content
-    engine.setFillColor(const Color(0xFF2C3E50));
-    final textPath = unicodeRenderer.renderUnicodeText(text, 100, yPos, 14.0);
-    engine.fill(textPath);
+    engine.fillStyle = const Color(0xFF2C3E50);
+    final textPath = unicodeRenderer.layout(text, 100, at(yPos), 14.0);
+    engine.fill(textPath, text: true);
 
-    yPos += 22;
+    yPos += 20;
   }
 
   // Section 2: Writing Systems
@@ -138,35 +153,30 @@ Future<void> main() async {
     ['Arabic', 'ابتثجحخدذرزسشصضطظعغفقكلمنهوي'],
   ];
 
-  yPos = 100;
+  yPos = 115;
   for (final system in writingSystemsLTR) {
     final name = system[0];
     final text = system[1];
     final direction = TextDirection.ltr;
 
     // System label
-    engine.setFillColor(const Color(0xFF7F8C8D));
-    final labelPath = unicodeRenderer.renderUnicodeText(
-      '$name:',
-      610,
-      yPos,
-      11.0,
-    );
-    engine.fill(labelPath);
+    engine.fillStyle = const Color(0xFF7F8C8D);
+    final labelPath = unicodeRenderer.layout('$name:', 610, at(yPos), 11.0);
+    engine.fill(labelPath, text: true);
 
     // Characters
-    engine.setFillColor(const Color(0xFF2C3E50));
+    engine.fillStyle = const Color(0xFF2C3E50);
     final xPos = direction == TextDirection.rtl ? 1170.0 : 680.0;
-    final textPath = unicodeRenderer.renderUnicodeText(
+    final textPath = unicodeRenderer.layout(
       text,
       xPos,
-      yPos,
+      at(yPos),
       13.0,
       direction: direction,
     );
-    engine.fill(textPath);
+    engine.fill(textPath, text: true);
 
-    yPos += 22;
+    yPos += 20;
   }
 
   // RTL systems
@@ -176,28 +186,23 @@ Future<void> main() async {
     final direction = TextDirection.rtl;
 
     // System label
-    engine.setFillColor(const Color(0xFF7F8C8D));
-    final labelPath = unicodeRenderer.renderUnicodeText(
-      '$name:',
-      610,
-      yPos,
-      11.0,
-    );
-    engine.fill(labelPath);
+    engine.fillStyle = const Color(0xFF7F8C8D);
+    final labelPath = unicodeRenderer.layout('$name:', 610, at(yPos), 11.0);
+    engine.fill(labelPath, text: true);
 
     // Characters
-    engine.setFillColor(const Color(0xFF2C3E50));
+    engine.fillStyle = const Color(0xFF2C3E50);
     final xPos = direction == TextDirection.rtl ? 1170.0 : 680.0;
-    final textPath = unicodeRenderer.renderUnicodeText(
+    final textPath = unicodeRenderer.layout(
       text,
       xPos,
-      yPos,
+      at(yPos),
       13.0,
       direction: direction,
     );
-    engine.fill(textPath);
+    engine.fill(textPath, text: true);
 
-    yPos += 22;
+    yPos += 20;
   }
 
   // Section 3: Complex Scripts
@@ -215,7 +220,7 @@ Future<void> main() async {
     ['Arabic', 'كان يا ما كان في قديم الزمان'],
   ];
 
-  yPos = 320;
+  yPos = 335;
   // LTR scripts
   for (final script in complexScriptsLTR) {
     final name = script[0];
@@ -223,28 +228,23 @@ Future<void> main() async {
     final direction = TextDirection.ltr;
 
     // Script label
-    engine.setFillColor(const Color(0xFF7F8C8D));
-    final labelPath = unicodeRenderer.renderUnicodeText(
-      '$name:',
-      30,
-      yPos,
-      11.0,
-    );
-    engine.fill(labelPath);
+    engine.fillStyle = const Color(0xFF7F8C8D);
+    final labelPath = unicodeRenderer.layout('$name:', 30, at(yPos), 11.0);
+    engine.fill(labelPath, text: true);
 
     // Text
-    engine.setFillColor(const Color(0xFF2C3E50));
+    engine.fillStyle = const Color(0xFF2C3E50);
     final xPos = direction == TextDirection.rtl ? 570.0 : 100.0;
-    final textPath = unicodeRenderer.renderUnicodeText(
+    final textPath = unicodeRenderer.layout(
       text,
       xPos,
-      yPos,
+      at(yPos),
       14.0,
       direction: direction,
     );
-    engine.fill(textPath);
+    engine.fill(textPath, text: true);
 
-    yPos += 22;
+    yPos += 20;
   }
 
   // RTL scripts
@@ -254,28 +254,23 @@ Future<void> main() async {
     final direction = TextDirection.rtl;
 
     // Script label
-    engine.setFillColor(const Color(0xFF7F8C8D));
-    final labelPath = unicodeRenderer.renderUnicodeText(
-      '$name:',
-      30,
-      yPos,
-      11.0,
-    );
-    engine.fill(labelPath);
+    engine.fillStyle = const Color(0xFF7F8C8D);
+    final labelPath = unicodeRenderer.layout('$name:', 30, at(yPos), 11.0);
+    engine.fill(labelPath, text: true);
 
     // Text
-    engine.setFillColor(const Color(0xFF2C3E50));
+    engine.fillStyle = const Color(0xFF2C3E50);
     final xPos = direction == TextDirection.rtl ? 570.0 : 100.0;
-    final textPath = unicodeRenderer.renderUnicodeText(
+    final textPath = unicodeRenderer.layout(
       text,
       xPos,
-      yPos,
+      at(yPos),
       14.0,
       direction: direction,
     );
-    engine.fill(textPath);
+    engine.fill(textPath, text: true);
 
-    yPos += 22;
+    yPos += 20;
   }
 
   // Section 4: Special Characters
@@ -290,24 +285,26 @@ Future<void> main() async {
     ('Dingbats', '✓✗✔✘♚♛♜♝♞♟♔♕♖♗♘♙⚀⚁⚂⚃⚄⚅'),
   ];
 
-  yPos = 320;
+  yPos = 335;
   for (final (category, chars) in specialChars) {
     // Category label
-    engine.setFillColor(const Color(0xFF7F8C8D));
-    final labelPath = unicodeRenderer.renderUnicodeText(
-      '$category:',
-      610,
-      yPos,
-      11.0,
+    engine.fillStyle = const Color(0xFF7F8C8D);
+    final labelPath = unicodeRenderer.layout('$category:', 610, at(yPos), 11.0);
+    engine.fill(labelPath, text: true);
+
+    // Characters, left to right: the currency row's only strong character
+    // is the Arabic rial sign, which would make it a right-to-left line
+    engine.fillStyle = const Color(0xFF2C3E50);
+    final textPath = unicodeRenderer.layout(
+      chars,
+      700,
+      at(yPos),
+      14.0,
+      direction: TextDirection.ltr,
     );
-    engine.fill(labelPath);
+    engine.fill(textPath, text: true);
 
-    // Characters
-    engine.setFillColor(const Color(0xFF2C3E50));
-    final textPath = unicodeRenderer.renderUnicodeText(chars, 700, yPos, 14.0);
-    engine.fill(textPath);
-
-    yPos += 22;
+    yPos += 20;
   }
 
   // Section 5: Mixed Content
@@ -319,12 +316,12 @@ Future<void> main() async {
     'Mixed: The price is €50.99 (≈\$60) for 3×items + 20% VAT = €61.19 total',
   ];
 
-  yPos = 520;
+  yPos = 537;
   for (final text in mixedContent) {
-    engine.setFillColor(const Color(0xFF2C3E50));
-    final textPath = unicodeRenderer.renderUnicodeText(text, 30, yPos, 15.0);
-    engine.fill(textPath);
-    yPos += 28;
+    engine.fillStyle = const Color(0xFF2C3E50);
+    final textPath = unicodeRenderer.layout(text, 30, at(yPos), 15.0);
+    engine.fill(textPath, text: true);
+    yPos += 26;
   }
 
   // Section 6: Text Effects
@@ -332,12 +329,12 @@ Future<void> main() async {
 
   // Shadow effect
   final shadowText = 'Shadow Effect Text';
-  engine.setFillColor(const Color(0x40000000));
-  var shadowPath = unicodeRenderer.renderUnicodeText(shadowText, 32, 702, 24.0);
-  engine.fill(shadowPath);
-  engine.setFillColor(const Color(0xFF2C3E50));
-  var mainPath = unicodeRenderer.renderUnicodeText(shadowText, 30, 700, 24.0);
-  engine.fill(mainPath);
+  engine.fillStyle = const Color(0x40000000);
+  var shadowPath = unicodeRenderer.layout(shadowText, 32, at(702), 24.0);
+  engine.fill(shadowPath, text: true);
+  engine.fillStyle = const Color(0xFF2C3E50);
+  var mainPath = unicodeRenderer.layout(shadowText, 30, at(700), 24.0);
+  engine.fill(mainPath, text: true);
 
   // Gradient effect (simulated with multiple colors)
   final gradientText = 'Gradient Text Effect';
@@ -346,56 +343,46 @@ Future<void> main() async {
     final r = (255 * (1 - t) + 0 * t).round();
     final g = (100 * (1 - t) + 150 * t).round();
     final b = (0 * (1 - t) + 255 * t).round();
-    engine.setFillColor(Color.fromRGBA(r, g, b, 255));
-    final offsetPath = unicodeRenderer.renderUnicodeText(
+    engine.fillStyle = Color.fromRGBA(r, g, b, 255);
+    final offsetPath = unicodeRenderer.layout(
       gradientText,
       300 + i * 0.5,
-      700 - i * 0.5,
+      at(700 - i * 0.5),
       24.0,
     );
-    engine.fill(offsetPath);
+    engine.fill(offsetPath, text: true);
   }
 
   // Outline effect
   final outlineText = 'Outline Effect';
-  engine.setStrokeColor(const Color(0xFF2C3E50));
-  engine.setLineWidth(2);
-  engine.setFillColor(const Color(0xFFFFFFFF));
-  final outlinePath = unicodeRenderer.renderUnicodeText(
-    outlineText,
-    600,
-    700,
-    24.0,
-  );
+  engine.strokeStyle = const Color(0xFF2C3E50);
+  engine.lineWidth = 2;
+  engine.fillStyle = const Color(0xFFFFFFFF);
+  final outlinePath = unicodeRenderer.layout(outlineText, 600, at(700), 24.0);
   engine.stroke(outlinePath);
-  engine.fill(outlinePath);
+  engine.fill(outlinePath, text: true);
 
   // Rotated text
   engine.save();
-  engine.translate(900, 700);
-  engine.rotate(math.pi / 12); // 15 degrees
-  engine.setFillColor(const Color(0xFF9B59B6));
-  final rotatedPath = unicodeRenderer.renderUnicodeText(
-    'Rotated Text',
-    0,
-    0,
-    24.0,
-  );
-  engine.fill(rotatedPath);
+  engine.translate(900, at(700));
+  engine.rotate(-math.pi / 12); // 15 degrees clockwise
+  engine.fillStyle = const Color(0xFF9B59B6);
+  final rotatedPath = unicodeRenderer.layout('Rotated Text', 0, 0, 24.0);
+  engine.fill(rotatedPath, text: true);
   engine.restore();
 
   // Vertical text (character by character)
   final verticalText = 'VERTICAL';
   yPos = 730;
   for (int i = 0; i < verticalText.length; i++) {
-    engine.setFillColor(const Color(0xFF16A085));
-    final charPath = unicodeRenderer.renderUnicodeText(
+    engine.fillStyle = const Color(0xFF16A085);
+    final charPath = unicodeRenderer.layout(
       verticalText[i],
       30,
-      yPos + i * 18,
+      at(yPos + i * 18),
       16.0,
     );
-    engine.fill(charPath);
+    engine.fill(charPath, text: true);
   }
 
   // Wavy text
@@ -403,9 +390,9 @@ Future<void> main() async {
   for (int i = 0; i < wavyText.length; i++) {
     final x = 120.0 + i * 14;
     final y = 780.0 + math.sin(i * 0.5) * 10;
-    engine.setFillColor(const Color(0xFFE74C3C));
-    final charPath = unicodeRenderer.renderUnicodeText(wavyText[i], x, y, 18.0);
-    engine.fill(charPath);
+    engine.fillStyle = const Color(0xFFE74C3C);
+    final charPath = unicodeRenderer.layout(wavyText[i], x, at(y), 18.0);
+    engine.fill(charPath, text: true);
   }
 
   // Circular text
@@ -418,17 +405,14 @@ Future<void> main() async {
     final x = centerX + radius * math.cos(angle);
     final y = centerY + radius * math.sin(angle);
 
+    // The angle is measured down the page, so in Y-up graphics space the
+    // rotation turns the other way
     engine.save();
-    engine.translate(x, y);
-    engine.rotate(angle + math.pi / 2);
-    engine.setFillColor(const Color(0xFF3498DB));
-    final charPath = unicodeRenderer.renderUnicodeText(
-      circularText[i],
-      0,
-      0,
-      14.0,
-    );
-    engine.fill(charPath);
+    engine.translate(x, at(y));
+    engine.rotate(-(angle + math.pi / 2));
+    engine.fillStyle = const Color(0xFF3498DB);
+    final charPath = unicodeRenderer.layout(circularText[i], 0, 0, 14.0);
+    engine.fill(charPath, text: true);
     engine.restore();
   }
 
@@ -444,14 +428,14 @@ Future<void> main() async {
     const Color(0xFF9400D3), // Violet
   ];
   for (int i = 0; i < rainbowText.length; i++) {
-    engine.setFillColor(rainbowColors[i % rainbowColors.length]);
-    final charPath = unicodeRenderer.renderUnicodeText(
+    engine.fillStyle = rainbowColors[i % rainbowColors.length];
+    final charPath = unicodeRenderer.layout(
       rainbowText[i],
       550 + i * 14,
-      780,
+      at(780),
       18.0,
     );
-    engine.fill(charPath);
+    engine.fill(charPath, text: true);
   }
 
   // Perspective text (simulated with scaling)
@@ -459,33 +443,30 @@ Future<void> main() async {
   for (int i = 0; i < perspectiveText.length; i++) {
     final scale = 1.0 + i * 0.1;
     engine.save();
-    engine.translate(750 + i * 20, 780);
+    engine.translate(750 + i * 20, at(780));
     engine.scale(scale, scale);
-    engine.setFillColor(const Color(0xFF34495E));
-    final charPath = unicodeRenderer.renderUnicodeText(
-      perspectiveText[i],
-      0,
-      0,
-      14.0,
-    );
-    engine.fill(charPath);
+    engine.fillStyle = const Color(0xFF34495E);
+    final charPath = unicodeRenderer.layout(perspectiveText[i], 0, 0, 14.0);
+    engine.fill(charPath, text: true);
     engine.restore();
   }
 
   // Blur effect removed - applyFilterToRegion not available in public API
 
   // Footer information
-  engine.setFillColor(const Color(0xFF95A5A6));
-  final footerPath = unicodeRenderer.renderUnicodeText(
-    'libgfx Unicode Renderer • Fonts: $loadedFonts loaded • Scripts: 15+ supported',
-    600,
-    880,
+  engine.fillStyle = const Color(0xFF95A5A6);
+  final footer =
+      'libgfx Unicode Renderer • Fonts: $loadedFonts loaded • Scripts: 15+ supported';
+  final footerPath = unicodeRenderer.layout(
+    footer,
+    600 - unicodeRenderer.extent(footer, 10).width / 2,
+    at(888),
     10.0,
   );
-  engine.fill(footerPath);
+  engine.fill(footerPath, text: true);
 
   // Save the result
-  await engine.saveToFile('output/unicode_text_demo.ppm');
+  await engine.write('output/unicode_text_demo.ppm');
 
   print('\nUnicode text demo completed successfully!');
   print('Output saved to: output/unicode_text_demo.ppm');
@@ -504,9 +485,11 @@ Future<void> main() async {
   print('  • Total unique characters: 500+');
 }
 
-/// Helper function to draw section backgrounds
+/// Draws a section's background, border, title band and title; (x, y) is
+/// its lower left corner in graphics space
 void _drawSectionBackground(
   GraphicsEngine engine,
+  TextRenderer renderer,
   double x,
   double y,
   double width,
@@ -514,31 +497,23 @@ void _drawSectionBackground(
   String title,
 ) {
   // Background
-  engine.setFillColor(const Color(0xFFFFFFFF));
-  final bg = PathBuilder()
-    ..moveTo(x, y)
-    ..lineTo(x + width, y)
-    ..lineTo(x + width, y + height)
-    ..lineTo(x, y + height)
-    ..close();
-  engine.fill(bg.build());
+  engine.fillStyle = const Color(0xFFFFFFFF);
+  final bg = PathBuilder().rect(x, y, width, height).build();
+  engine.fill(bg);
 
   // Border
-  engine.setStrokeColor(const Color(0xFFE0E0E0));
-  engine.setLineWidth(1);
-  engine.stroke(bg.build());
+  engine.strokeStyle = const Color(0xFFE0E0E0);
+  engine.lineWidth = 1;
+  engine.stroke(bg);
 
-  // Title background
-  engine.setFillColor(const Color(0xFFF5F5F5));
-  final titleBg = PathBuilder()
-    ..moveTo(x, y)
-    ..lineTo(x + width, y)
-    ..lineTo(x + width, y + 25)
-    ..lineTo(x, y + 25)
-    ..close();
-  engine.fill(titleBg.build());
+  // Title band along the top
+  engine.fillStyle = const Color(0xFFF5F5F5);
+  engine.fill(PathBuilder().rect(x, y + height - 25, width, 25).build());
 
-  // Title text (using basic rendering since we don't have the renderer here)
-  engine.setFillColor(const Color(0xFF7F8C8D));
-  // Title will be rendered by the main code
+  // Title text
+  engine.fillStyle = const Color(0xFF7F8C8D);
+  engine.fill(
+    renderer.layout(title, x + 10, y + height - 17, 12.0),
+    text: true,
+  );
 }

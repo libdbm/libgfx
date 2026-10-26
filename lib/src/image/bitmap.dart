@@ -7,6 +7,7 @@ import '../blending/blend_modes.dart';
 import '../color/color.dart';
 import '../errors.dart';
 import '../graphics_state.dart';
+import '../limits.dart';
 import '../matrix.dart';
 import '../paint.dart';
 import '../point.dart';
@@ -19,9 +20,22 @@ class Bitmap {
   final int height;
   late Uint32List _pixels;
 
-  /// Create a bitmap with specified dimensions
+  /// Create a bitmap with specified dimensions. Negative dimensions, or more
+  /// pixels than the default [Limits.pixels], are programming errors and
+  /// throw [ArgumentError] before anything is allocated.
   Bitmap(this.width, this.height) {
-    // Let Uint32List throw RangeError for negative dimensions naturally
+    if (width < 0 || height < 0) {
+      throw ArgumentError(
+        'Bitmap dimensions must not be negative: '
+        '${width}x$height',
+      );
+    }
+    if (width * height > const Limits().pixels) {
+      throw ArgumentError(
+        'Bitmap of ${width}x$height exceeds '
+        '${const Limits().pixels} pixels',
+      );
+    }
     _pixels = Uint32List(width * height);
   }
 
@@ -51,25 +65,32 @@ class Bitmap {
   }
 
   /// Set a pixel value using raw color value
-  void setPixel(int x, int y, Color color) {
+  void plot(final int x, final int y, final Color color) {
     if (x >= 0 && x < width && y >= 0 && y < height) {
       _pixels[y * width + x] = color.value;
     }
   }
 
-  /// Blend a pixel with the existing color using the specified blend mode
-  void blendPixel(int x, int y, Color color, BlendMode blendMode) {
+  /// Blend a pixel with the existing color using the specified blend mode;
+  /// partial [coverage] (0-255) masks the blended result, as for spans
+  void blend(
+    int x,
+    int y,
+    Color color,
+    final BlendMode mode, [
+    final int coverage = 255,
+  ]) {
     if (x < 0 || x >= width || y < 0 || y >= height) {
       return;
     }
 
-    final dstColor = Color(_pixels[y * width + x]);
-    final blended = _blend(color, dstColor, blendMode);
-    _pixels[y * width + x] = blended.value;
+    final destination = Color(_pixels[y * width + x]);
+    final blended = _blend(color, destination, mode);
+    _pixels[y * width + x] = _cover(destination, blended, coverage).value;
   }
 
   /// Get pixel as Color object
-  Color getPixel(int x, int y) {
+  Color pixel(final int x, final int y) {
     if (x < 0 || x >= width || y < 0 || y >= height) {
       return Color.transparent;
     }
@@ -82,7 +103,7 @@ class Bitmap {
   }
 
   /// Draw a horizontal span for rasterization
-  void drawHorizontalSpan(
+  void span(
     int x1,
     int x2,
     int y,
@@ -95,8 +116,8 @@ class Bitmap {
     final offset = y * width;
 
     // Fast path for solid paint with srcOver
-    if (paint is SolidPaint && mode == BlendMode.srcOver) {
-      final color = paint.color;
+    if (paint is Color && mode == BlendMode.srcOver) {
+      final color = paint;
       if (color.alpha == 255) {
         // Fully opaque - direct copy
         final value = color.value;
@@ -106,8 +127,8 @@ class Bitmap {
       } else if (color.alpha > 0) {
         // Semi-transparent - blend once
         for (int x = start; x < end; x++) {
-          final dest = Color(_pixels[offset + x]);
-          final blended = BlendModes.srcOver(color, dest);
+          final destination = Color(_pixels[offset + x]);
+          final blended = BlendModes.srcOver(color, destination);
           _pixels[offset + x] = blended.value;
         }
       }
@@ -116,44 +137,43 @@ class Bitmap {
 
     // Optimized path for LinearGradient
     if (paint is LinearGradient) {
-      final grad = paint;
-      final dy = y.toDouble();
-      var t = grad.getTAt(start.toDouble(), dy, inverse);
-      final tDelta = grad.getTDeltaX(inverse);
+      final gradient = paint;
+      final row = y.toDouble();
+      var t = gradient.offset(start.toDouble(), row, inverse);
+      final step = gradient.step(inverse);
 
       for (int x = start; x < end; x++) {
-        final normalizedT = grad.applySpread(t);
-        final source = grad.getColorAtOffset(normalizedT);
-        final dest = Color(_pixels[offset + x]);
-        final result = _blend(source, dest, mode);
+        final wrapped = gradient.wrap(t);
+        final source = gradient.lookup(wrapped);
+        final destination = Color(_pixels[offset + x]);
+        final result = _blend(source, destination, mode);
         _pixels[offset + x] = result.value;
-        t += tDelta;
+        t += step;
       }
       return;
     }
 
     // Slow path for other gradients and patterns
     for (int x = start; x < end; x++) {
-      final source = paint.getColorAt(
-        Point(x.toDouble(), y.toDouble()),
-        inverse,
-      );
-      final dest = Color(_pixels[offset + x]);
-      final result = _blend(source, dest, mode);
+      final source = paint.sample(Point(x.toDouble(), y.toDouble()), inverse);
+      final destination = Color(_pixels[offset + x]);
+      final result = _blend(source, destination, mode);
       _pixels[offset + x] = result.value;
     }
   }
 
-  /// Draw a horizontal span with coverage for anti-aliasing
-  void drawAntiAliasedSpan(
+  /// Draw a horizontal span with coverage for anti-aliasing. [alpha] scales
+  /// the source before blending; [coverage] masks the blended result.
+  void shade(
     int x,
     int length,
     int y,
     int coverage,
     Paint paint,
     Matrix2D inverse,
-    BlendMode mode,
-  ) {
+    BlendMode mode, {
+    double alpha = 1.0,
+  }) {
     if (y < 0 || y >= height) return;
     if (coverage <= 0) return;
 
@@ -162,85 +182,102 @@ class Bitmap {
     if (start >= end) return;
 
     final offset = y * width;
-    final norm = coverage / 255.0;
+    final fraction = coverage / 255.0;
 
     // Fast path for solid paint with srcOver
-    if (paint is SolidPaint && mode == BlendMode.srcOver) {
-      final base = paint.color;
+    if (paint is Color && mode == BlendMode.srcOver) {
+      final base = paint;
       final covered = Color.fromARGB(
-        (base.alpha * norm).round(),
+        (base.alpha * fraction * alpha).round(),
         base.red,
         base.green,
         base.blue,
       );
 
-      for (int px = start; px < end; px++) {
-        final dest = Color(_pixels[offset + px]);
-        final blended = BlendModes.srcOver(covered, dest);
-        _pixels[offset + px] = blended.value;
+      for (int column = start; column < end; column++) {
+        final destination = Color(_pixels[offset + column]);
+        final blended = BlendModes.srcOver(covered, destination);
+        _pixels[offset + column] = blended.value;
       }
       return;
     }
 
-    // Slow path for gradients and patterns
-    for (int px = start; px < end; px++) {
-      final source = paint.getColorAt(
-        Point(px.toDouble(), y.toDouble()),
+    // Slow path for gradients, patterns and other blend modes: [alpha]
+    // scales the source, coverage masks the blended result
+    for (int column = start; column < end; column++) {
+      final sampled = paint.sample(
+        Point(column.toDouble(), y.toDouble()),
         inverse,
       );
+      final source = alpha < 1.0
+          ? ColorUtils.opacity(sampled, (sampled.alpha * alpha).round())
+          : sampled;
 
-      // Apply coverage to source alpha
-      final covered = Color.fromARGB(
-        (source.alpha * norm).round(),
-        source.red,
-        source.green,
-        source.blue,
+      final destination = Color(_pixels[offset + column]);
+      final result = _cover(
+        destination,
+        _blend(source, destination, mode),
+        coverage,
       );
-
-      final dest = Color(_pixels[offset + px]);
-      final result = _blend(covered, dest, mode);
-      _pixels[offset + px] = result.value;
+      _pixels[offset + column] = result.value;
     }
   }
 
-  Color _blend(Color source, Color dest, BlendMode mode) {
-    return BlendModes.blend(source, dest, mode);
+  /// Moves [destination] towards [blended] by [coverage] (0-255), interpolating in
+  /// premultiplied space, so partial coverage masks the result of every blend
+  /// mode rather than only scaling the source alpha.
+  static Color _cover(final Color destination, Color blended, int coverage) {
+    if (coverage >= 255) return blended;
+    final from = ColorUtils.premultiply(destination);
+    final to = ColorUtils.premultiply(blended);
+    int mix(int start, int end) =>
+        start + ((end - start) * coverage / 255).round();
+    return ColorUtils.unpremultiply(
+      mix(from.red, to.red),
+      mix(from.green, to.green),
+      mix(from.blue, to.blue),
+      mix(from.alpha, to.alpha),
+    );
+  }
+
+  Color _blend(Color source, final Color destination, BlendMode mode) {
+    return BlendModes.blend(source, destination, mode);
   }
 
   /// Optimized rectangle fill for solid colors
-  void fillSolid(int x, int y, int w, int h, Color color, BlendMode mode) {
+  void fill(int x, int y, int columns, int rows, Color color, BlendMode mode) {
     // Clip to bitmap bounds
-    if (x >= width || y >= height || x + w <= 0 || y + h <= 0) return;
+    if (x >= width || y >= height || x + columns <= 0 || y + rows <= 0) return;
 
     final x1 = math.max(0, x);
     final y1 = math.max(0, y);
-    final x2 = math.min(width, x + w);
-    final y2 = math.min(height, y + h);
+    final x2 = math.min(width, x + columns);
+    final y2 = math.min(height, y + rows);
 
     if (x1 >= x2 || y1 >= y2) return;
 
-    final rectWidth = x2 - x1;
+    final count = x2 - x1;
 
     // Fast path for opaque srcOver - direct write
     if (mode == BlendMode.srcOver && color.alpha == 255) {
       final value = color.value;
-      for (int py = y1; py < y2; py++) {
-        final offset = py * width + x1;
-        for (int px = 0; px < rectWidth; px++) {
-          _pixels[offset + px] = value;
+      for (int row = y1; row < y2; row++) {
+        final offset = row * width + x1;
+        for (int column = 0; column < count; column++) {
+          _pixels[offset + column] = value;
         }
       }
       return;
     }
 
     // Semi-transparent or other blend modes
-    for (int py = y1; py < y2; py++) {
-      final offset = py * width + x1;
-      for (int px = 0; px < rectWidth; px++) {
-        final idx = offset + px;
-        final dest = Color(_pixels[idx]);
-        final blended = _blend(color, dest, mode);
-        _pixels[idx] = blended.value;
+    for (int row = y1; row < y2; row++) {
+      final offset = row * width + x1;
+      for (int column = 0; column < count; column++) {
+        final index = offset + column;
+        final destination = Color(_pixels[index]);
+        final blended = _blend(color, destination, mode);
+        _pixels[index] = blended.value;
       }
     }
   }
@@ -248,33 +285,33 @@ class Bitmap {
   // ===== High-level image manipulation operations =====
 
   /// Scale bitmap using bilinear interpolation
-  Bitmap scale(int newWidth, int newHeight) {
-    if (newWidth == width && newHeight == height) {
+  Bitmap scale(int columns, int rows) {
+    if (columns == width && rows == height) {
       return this;
     }
 
-    final result = Bitmap.empty(newWidth, newHeight);
-    final xRatio = width / newWidth;
-    final yRatio = height / newHeight;
+    final result = Bitmap.empty(columns, rows);
+    final xRatio = width / columns;
+    final yRatio = height / rows;
 
-    for (int y = 0; y < newHeight; y++) {
-      for (int x = 0; x < newWidth; x++) {
-        final srcX = x * xRatio;
-        final srcY = y * yRatio;
+    for (int y = 0; y < rows; y++) {
+      for (int x = 0; x < columns; x++) {
+        final sourceX = x * xRatio;
+        final sourceY = y * yRatio;
 
         // Bilinear interpolation
-        final x0 = srcX.floor();
+        final x0 = sourceX.floor();
         final x1 = (x0 + 1).clamp(0, width - 1);
-        final y0 = srcY.floor();
+        final y0 = sourceY.floor();
         final y1 = (y0 + 1).clamp(0, height - 1);
 
-        final fx = srcX - x0;
-        final fy = srcY - y0;
+        final fx = sourceX - x0;
+        final fy = sourceY - y0;
 
-        final c00 = getPixel(x0, y0);
-        final c10 = getPixel(x1, y0);
-        final c01 = getPixel(x0, y1);
-        final c11 = getPixel(x1, y1);
+        final c00 = pixel(x0, y0);
+        final c10 = pixel(x1, y0);
+        final c01 = pixel(x0, y1);
+        final c11 = pixel(x1, y1);
 
         // Interpolate colors using integer math
         final r = MathUtils.lerpInt(
@@ -298,7 +335,7 @@ class Bitmap {
           fy,
         );
 
-        result.setPixel(x, y, Color.fromRGBA(r, g, b, a));
+        result.plot(x, y, Color.fromRGBA(r, g, b, a));
       }
     }
 
@@ -306,12 +343,12 @@ class Bitmap {
   }
 
   /// Crop a region from the bitmap
-  Bitmap crop(int x, int y, int cropWidth, int cropHeight) {
-    final result = Bitmap.empty(cropWidth, cropHeight);
+  Bitmap crop(int x, int y, int columns, int rows) {
+    final result = Bitmap.empty(columns, rows);
 
-    for (int dy = 0; dy < cropHeight; dy++) {
-      for (int dx = 0; dx < cropWidth; dx++) {
-        result.setPixel(dx, dy, getPixel(x + dx, y + dy));
+    for (int dy = 0; dy < rows; dy++) {
+      for (int dx = 0; dx < columns; dx++) {
+        result.plot(dx, dy, pixel(x + dx, y + dy));
       }
     }
 
@@ -319,12 +356,12 @@ class Bitmap {
   }
 
   /// Flip bitmap horizontally
-  Bitmap flipHorizontal() {
+  Bitmap mirror() {
     final result = Bitmap.empty(width, height);
 
     for (int y = 0; y < height; y++) {
       for (int x = 0; x < width; x++) {
-        result.setPixel(width - 1 - x, y, getPixel(x, y));
+        result.plot(width - 1 - x, y, pixel(x, y));
       }
     }
 
@@ -332,12 +369,12 @@ class Bitmap {
   }
 
   /// Flip bitmap vertically
-  Bitmap flipVertical() {
+  Bitmap flip() {
     final result = Bitmap.empty(width, height);
 
     for (int y = 0; y < height; y++) {
       for (int x = 0; x < width; x++) {
-        result.setPixel(x, height - 1 - y, getPixel(x, y));
+        result.plot(x, height - 1 - y, pixel(x, y));
       }
     }
 
@@ -350,7 +387,7 @@ class Bitmap {
 
     for (int y = 0; y < height; y++) {
       for (int x = 0; x < width; x++) {
-        result.setPixel(height - 1 - y, x, getPixel(x, y));
+        result.plot(height - 1 - y, x, pixel(x, y));
       }
     }
 
@@ -358,15 +395,15 @@ class Bitmap {
   }
 
   /// Apply opacity to all pixels
-  Bitmap withOpacity(double opacity) {
+  Bitmap fade(double opacity) {
     final result = Bitmap.empty(width, height);
     final alpha = (opacity * 255).clamp(0, 255);
 
     for (int y = 0; y < height; y++) {
       for (int x = 0; x < width; x++) {
-        final color = getPixel(x, y);
-        final newAlpha = (color.alpha * alpha ~/ 255);
-        result.setPixel(x, y, ColorUtils.withAlpha(color, newAlpha));
+        final color = pixel(x, y);
+        final faded = (color.alpha * alpha ~/ 255);
+        result.plot(x, y, ColorUtils.opacity(color, faded));
       }
     }
 
@@ -379,7 +416,7 @@ class Bitmap {
 
     for (int y = 0; y < height; y++) {
       for (int x = 0; x < width; x++) {
-        result.setPixel(width - 1 - x, height - 1 - y, getPixel(x, y));
+        result.plot(width - 1 - x, height - 1 - y, pixel(x, y));
       }
     }
 
@@ -392,7 +429,7 @@ class Bitmap {
 
     for (int y = 0; y < height; y++) {
       for (int x = 0; x < width; x++) {
-        result.setPixel(y, width - 1 - x, getPixel(x, y));
+        result.plot(y, width - 1 - x, pixel(x, y));
       }
     }
 
@@ -400,12 +437,13 @@ class Bitmap {
   }
 
   /// Rotate bitmap by arbitrary angle (in radians) with optional background color
-  Bitmap rotateAngle(double angleRadians, [Color? backgroundColor]) {
-    backgroundColor ??= const Color(0x00000000); // Transparent by default
-
+  Bitmap rotate(
+    final double angle, [
+    final Color background = Color.transparent,
+  ]) {
     // Calculate bounding box for rotated image
-    final cos = math.cos(angleRadians).abs();
-    final sin = math.sin(angleRadians).abs();
+    final cos = math.cos(angle).abs();
+    final sin = math.sin(angle).abs();
     final newWidth = (width * cos + height * sin).ceil();
     final newHeight = (width * sin + height * cos).ceil();
 
@@ -413,7 +451,7 @@ class Bitmap {
 
     // Fill with background color
     for (int i = 0; i < result._pixels.length; i++) {
-      result._pixels[i] = backgroundColor.value;
+      result._pixels[i] = background.value;
     }
 
     // Center points
@@ -423,8 +461,8 @@ class Bitmap {
     final newCenterY = newHeight / 2.0;
 
     // Rotation matrix (inverse for sampling)
-    final cosAngle = math.cos(-angleRadians);
-    final sinAngle = math.sin(-angleRadians);
+    final cosine = math.cos(-angle);
+    final sine = math.sin(-angle);
 
     for (int y = 0; y < newHeight; y++) {
       for (int x = 0; x < newWidth; x++) {
@@ -433,37 +471,36 @@ class Bitmap {
         final dy = y - newCenterY;
 
         // Apply inverse rotation
-        final srcX = dx * cosAngle - dy * sinAngle + centerX;
-        final srcY = dx * sinAngle + dy * cosAngle + centerY;
+        final sourceX = dx * cosine - dy * sine + centerX;
+        final sourceY = dx * sine + dy * cosine + centerY;
 
         // Bilinear interpolation for smooth rotation
-        if (srcX >= 0 && srcX < width - 1 && srcY >= 0 && srcY < height - 1) {
-          final x0 = srcX.floor();
-          final y0 = srcY.floor();
+        if (sourceX >= 0 &&
+            sourceX < width - 1 &&
+            sourceY >= 0 &&
+            sourceY < height - 1) {
+          final x0 = sourceX.floor();
+          final y0 = sourceY.floor();
           final x1 = x0 + 1;
           final y1 = y0 + 1;
 
-          final fx = srcX - x0;
-          final fy = srcY - y0;
+          final fx = sourceX - x0;
+          final fy = sourceY - y0;
 
-          final c00 = getPixel(x0, y0);
-          final c10 = getPixel(x1, y0);
-          final c01 = getPixel(x0, y1);
-          final c11 = getPixel(x1, y1);
+          final c00 = pixel(x0, y0);
+          final c10 = pixel(x1, y0);
+          final c01 = pixel(x0, y1);
+          final c11 = pixel(x1, y1);
 
           // Bilinear interpolation
-          final interpolatedColor = ColorUtils.bilerpColor(
-            c00,
-            c10,
-            c01,
-            c11,
-            fx,
-            fy,
-          );
-          result.setPixel(x, y, interpolatedColor);
-        } else if (srcX >= 0 && srcX < width && srcY >= 0 && srcY < height) {
+          final interpolated = ColorUtils.bilerp(c00, c10, c01, c11, fx, fy);
+          result.plot(x, y, interpolated);
+        } else if (sourceX >= 0 &&
+            sourceX < width &&
+            sourceY >= 0 &&
+            sourceY < height) {
           // Edge case: use nearest neighbor
-          result.setPixel(x, y, getPixel(srcX.round(), srcY.round()));
+          result.plot(x, y, pixel(sourceX.round(), sourceY.round()));
         }
       }
     }
